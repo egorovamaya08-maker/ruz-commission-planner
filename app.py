@@ -92,3 +92,43 @@ with tab5:
             st.info("Таблица пуста")
     except Exception as e:
         st.error(f"Ошибка запроса: {e}")
+
+
+
+# =========================
+# INSERT TEST DATA
+# =========================
+with tab1:
+    st.subheader("Добавление тестовой записи")
+
+    with st.form("add_schedule"):
+        group_name = st.text_input("Группа", "3530902/20101")
+        teacher = st.text_input("Преподаватель", "Иванов И.И.")
+        subject = st.text_input("Предмет", "Математика")
+        lesson_type = st.selectbox("Тип", ["Лекция", "Практика", "Лабораторная"])
+        date = st.date_input("Дата")
+        start_time = st.time_input("Начало")
+        end_time = st.time_input("Конец")
+        classroom = st.text_input("Аудитория", "101")
+
+        submitted = st.form_submit_button("💾 Сохранить")
+
+        if submitted:
+            try:
+                data = {
+                    "group_name": group_name,
+                    "teacher": teacher,
+                    "subject": subject,
+                    "lesson_type": lesson_type,
+                    "date": str(date),
+                    "start_time": str(start_time),
+                    "end_time": str(end_time),
+                    "classroom": classroom
+                }
+
+                supabase.table("schedules").insert(data).execute()
+
+                st.success("✅ Запись добавлена")
+
+            except Exception as e:
+                st.error(f"Ошибка вставки: {e}")

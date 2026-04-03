@@ -1,7 +1,11 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
+from supabase import create_client, Client
 
+# =========================
+# CONFIG
+# =========================
 st.set_page_config(
     page_title="RUZ Commission Planner",
     page_icon="📅",
@@ -9,66 +13,82 @@ st.set_page_config(
 )
 
 st.title("📅 RUZ Commission Planner")
-st.markdown("**Планирование комиссий и поиск свободных окон • СПбГТУ**")
+st.markdown("**Планирование комиссий и поиск свободных окон • СПбПУ**")
 
-# Подключение к Supabase
+# =========================
+# SUPABASE INIT
+# =========================
 @st.cache_resource
-def init_supabase():
+def init_supabase() -> Client:
     try:
-        conn = st.connection("supabase", type="sql")
-        st.success("✅ Подключено к Supabase")
-        return conn
+        url = st.secrets["SUPABASE_URL"]
+        key = st.secrets["SUPABASE_KEY"]
+
+        client = create_client(url, key)
+        return client
     except Exception as e:
-        st.error(f"❌ Ошибка подключения к базе: {e}")
-        st.info("Проверьте secrets в Streamlit Cloud")
+        st.error(f"❌ Ошибка подключения к Supabase: {e}")
         return None
+
 
 supabase = init_supabase()
 
-# ====================== ИНТЕРФЕЙС ======================
+if supabase:
+    st.success("✅ Supabase подключен")
+else:
+    st.stop()
+
+# =========================
+# SIDEBAR
+# =========================
 with st.sidebar:
     st.header("Настройки")
-    st.caption("Приватное приложение")
 
-    if st.button("🔄 Полностью обновить расписание", type="primary"):
-        if supabase:
-            st.info("Парсер расписания будет добавлен на следующем этапе")
-        else:
-            st.error("Сначала подключите Supabase")
+    if st.button("🔄 Обновить расписание", type="primary"):
+        st.info("Парсер будет добавлен на следующем шаге")
 
-# Вкладки
+# =========================
+# TABS
+# =========================
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "Обновление данных", 
-    "Поиск свободных окон", 
-    "Планирование комиссий", 
-    "Статистика нагрузки", 
-    "Сохранённые варианты"
+    "Обновление данных",
+    "Поиск свободных окон",
+    "Планирование комиссий",
+    "Статистика",
+    "Сохранённые"
 ])
 
+# =========================
+# TAB 1
+# =========================
 with tab1:
     st.subheader("Обновление расписания")
+
     col1, col2 = st.columns(2)
+
     with col1:
         start_date = st.date_input("Дата начала", datetime(2026, 2, 1))
+
     with col2:
         end_date = st.date_input("Дата окончания", datetime(2026, 5, 25))
-    
-    st.info("✅ Supabase подключён. Парсер добавим дальше.")
 
-with tab2:
-    st.subheader("Поиск свободных окон")
-    st.info("Фильтры и поиск появятся на следующих этапах.")
+    if st.button("📥 Загрузить данные"):
+        st.warning("Парсер ещё не подключён")
 
-with tab3:
-    st.subheader("Планирование комиссий")
-    st.info("Здесь будет выбор преподавателей и генерация вариантов.")
-
-with tab4:
-    st.subheader("Статистика нагрузки")
-    st.info("Статистика по дисциплинам и преподавателям.")
-
+# =========================
+# TEST QUERY
+# =========================
 with tab5:
-    st.subheader("Сохранённые варианты комиссий")
-    st.info("Список сохранённых комиссий.")
+    st.subheader("Проверка базы")
 
-st.caption("RUZ Commission Planner v0.1 • Данные в Supabase")
+    try:
+        response = supabase.table("schedules").select("*").limit(5).execute()
+        data = response.data
+
+        if data:
+            df = pd.DataFrame(data)
+            st.dataframe(df)
+        else:
+            st.info("Таблица пуста")
+    except Exception as e:
+        st.error(f"Ошибка запроса: {e}")

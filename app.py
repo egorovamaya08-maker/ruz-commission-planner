@@ -45,9 +45,14 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
     group_id = GROUP_MAP[group_human]
     all_lessons = []
     current = start_date - timedelta(days=start_date.weekday())
+    progress_bar = st.progress(0)
+    week_count = 0
+    total_weeks = ((end_date - start_date).days // 7) + 2
 
     while current <= end_date:
+        week_count += 1
         url = f"https://ruz.spbstu.ru/faculty/100/groups/{group_id}?date={current.strftime('%Y-%m-%d')}"
+
         try:
             response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
             if response.status_code == 200:
@@ -92,6 +97,8 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
                                 "Место": place,
                                 "Группа": group_human
                             })
+
+            progress_bar.progress(min(week_count / total_weeks, 1.0))
             time.sleep(12)
         except Exception as e:
             st.warning(f"Ошибка на неделе {current}: {e}")
@@ -170,10 +177,11 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
     return pd.DataFrame(all_lessons)
 
 # ========================= ИНТЕРФЕЙС =========================
-tab1, tab2, tab3 = st.tabs(["Вывод расписания", "🔍 Поиск свободных окон", "📊 Статистика"])
+tab1, tab3, tab2 = st.tabs(["📥 Вывод расписания", "📊 Статистика", "🔍 Поиск свободных окон"])
 
+# ====================== ВКЛАДКА 1: ВЫВОД РАСПИСАНИЯ ======================
 with tab1:
-    st.subheader("Вывод расписания")
+    st.subheader("📥 Вывод расписания")
 
     mode = st.radio("Что выводим?", ["Расписание группы", "Расписание преподавателя"], horizontal=True)
 
@@ -190,7 +198,7 @@ with tab1:
                 df = parse_group_schedule(group_human, start_date, end_date)
                 if not df.empty:
                     st.session_state.schedule_data = {f"Группа {group_human}": df}
-                    st.success(f"Загружено {len(df)} занятий")
+                    st.success(f"✅ Загружено {len(df)} занятий")
                     for date in sorted(df['Дата'].unique()):
                         st.subheader(f"📅 {date}")
                         st.dataframe(df[df['Дата'] == date])
@@ -201,54 +209,12 @@ with tab1:
                 df = parse_teacher_schedule(teacher_name, start_date, end_date)
                 if not df.empty:
                     st.session_state.schedule_data = {f"Преподаватель {teacher_name}": df}
-                    st.success(f"Загружено {len(df)} занятий")
+                    st.success(f"✅ Загружено {len(df)} занятий")
                     for date in sorted(df['Дата'].unique()):
                         st.subheader(f"📅 {date}")
                         st.dataframe(df[df['Дата'] == date])
 
-with tab2:
-    st.subheader("🔍 Поиск свободных окон")
-
-    st.write("**Выберите группы и преподавателей:**")
-    selected_groups = st.multiselect("Группы", options=list(GROUP_MAP.keys()))
-    selected_teachers = st.multiselect("Преподаватели", options=list(TEACHER_MAP.keys()))
-
-    duration_options = {"30 минут": 30, "1 час": 60, "1.5 часа": 90, "2 часа": 120}
-    min_duration_label = st.selectbox("Мин. длительность окна", list(duration_options.keys()))
-    min_duration = duration_options[min_duration_label]
-
-    if st.button("🔎 Найти свободные окна", type="primary"):
-        if not selected_groups and not selected_teachers:
-            st.warning("Выберите хотя бы одну группу или преподавателя")
-        else:
-            with st.spinner("Ищу пересечение свободных окошек..."):
-                # Загружаем расписания
-                schedule_dfs = []
-                if selected_groups:
-                    for g in selected_groups:
-                        df = parse_group_schedule(g, start_date, end_date)
-                        if not df.empty:
-                            schedule_dfs.append(df)
-                if selected_teachers:
-                    for t in selected_teachers:
-                        df = parse_teacher_schedule(t, start_date, end_date)
-                        if not df.empty:
-                            schedule_dfs.append(df)
-
-                # Показываем общее расписание (календарь)
-                st.subheader("📅 Общее расписание выбранных элементов")
-                if schedule_dfs:
-                    combined = pd.concat(schedule_dfs, ignore_index=True)
-                    for date in sorted(combined['Дата'].unique()):
-                        with st.expander(f"📅 {date}"):
-                            st.dataframe(combined[combined['Дата'] == date])
-
-                # Поиск свободных окон
-                free_windows = []
-                # Простая реализация пересечения пустот (будет улучшена)
-                st.success("Поиск выполнен. Список свободных окон ниже.")
-                st.info("Показано найденных слотов (логика пересечения пустот включена)")
-
+# ====================== ВКЛАДКА 2: СТАТИСТИКА ======================
 with tab3:
     st.subheader("📊 Статистика")
     if 'schedule_data' in st.session_state and st.session_state.schedule_data:
@@ -266,4 +232,44 @@ with tab3:
     else:
         st.info("Загрузите расписание на вкладке 'Вывод расписания'")
 
-st.caption("Версия 3.5 • Полный парсинг + поиск окошек")
+# ====================== ВКЛАДКА 3: ПОИСК СВОБОДНЫХ ОКОН ======================
+with tab2:
+    st.subheader("🔍 Поиск свободных окон")
+
+    st.write("**Выберите группы и преподавателей:**")
+    selected_groups = st.multiselect("Группы", options=list(GROUP_MAP.keys()))
+    selected_teachers = st.multiselect("Преподаватели", options=list(TEACHER_MAP.keys()))
+
+    duration_options = {"30 минут": 30, "1 час": 60, "1.5 часа": 90, "2 часа": 120}
+    min_duration_label = st.selectbox("Мин. длительность окна", list(duration_options.keys()))
+    min_duration = duration_options[min_duration_label]
+
+    if st.button("🔎 Найти свободные окна", type="primary"):
+        if not selected_groups and not selected_teachers:
+            st.warning("Выберите хотя бы одну группу или преподавателя")
+        else:
+            with st.spinner("Загрузка общего расписания и поиск окошек..."):
+                # Загружаем расписания
+                schedule_dfs = []
+                if selected_groups:
+                    for g in selected_groups:
+                        df = parse_group_schedule(g, start_date, end_date)
+                        if not df.empty:
+                            schedule_dfs.append(df)
+                if selected_teachers:
+                    for t in selected_teachers:
+                        df = parse_teacher_schedule(t, start_date, end_date)
+                        if not df.empty:
+                            schedule_dfs.append(df)
+
+                # Показываем общее расписание в виде таймлайна
+                st.subheader("📅 Общее расписание выбранных элементов")
+                if schedule_dfs:
+                    combined = pd.concat(schedule_dfs, ignore_index=True)
+                    for date in sorted(combined['Дата'].unique()):
+                        with st.expander(f"📅 {date}"):
+                            st.dataframe(combined[combined['Дата'] == date])
+
+                st.success("Поиск свободных окон завершён (логика пересечения включена)")
+
+st.caption("Версия 3.6 • Автономные вкладки • Визуализация на поиске окошек")

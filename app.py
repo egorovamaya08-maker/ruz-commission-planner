@@ -198,11 +198,18 @@ def display_calendar_matrix(combined_df, start_date, end_date):
         st.info("Нет данных для отображения календаря.")
         return
 
-    # Преобразуем date в datetime, если нужно
-    if isinstance(start_date, datetime.date) and not isinstance(start_date, datetime.datetime):
-        start_date = datetime.combine(start_date, datetime.min.time())
-    if isinstance(end_date, datetime.date) and not isinstance(end_date, datetime.datetime):
-        end_date = datetime.combine(end_date, datetime.min.time())
+    # Исправление типов дат
+    if isinstance(start_date, (datetime.date, datetime.datetime)):
+        if not isinstance(start_date, datetime.datetime):
+            start_date = datetime.combine(start_date, datetime.min.time())
+    else:
+        start_date = datetime(2026, 2, 1)  # fallback
+
+    if isinstance(end_date, (datetime.date, datetime.datetime)):
+        if not isinstance(end_date, datetime.datetime):
+            end_date = datetime.combine(end_date, datetime.min.time())
+    else:
+        end_date = datetime(2026, 2, 28)  # fallback
 
     # Генерируем слоты по часу с 9:00 до 21:30
     slots = []
@@ -213,7 +220,7 @@ def display_calendar_matrix(combined_df, start_date, end_date):
         slot_end = current.strftime("%H:%M")
         slots.append((f"{slot_start}–{slot_end}", slot_start, slot_end))
 
-    date_range = pd.date_range(start_date, end_date)
+    date_range = pd.date_range(start_date.date(), end_date.date())
 
     st.subheader("📅 Календарь занятости (все выбранные группы и преподаватели)")
 
@@ -267,7 +274,6 @@ def display_calendar_matrix(combined_df, start_date, end_date):
     html += "</table>"
     st.markdown(html, unsafe_allow_html=True)
     st.caption("✅ Зелёный = свободно для всех выбранных | 🔴 Красный = занято хотя бы у одного")
-
 # ========================= ИНТЕРФЕЙС =========================
 tab1, tab3, tab2 = st.tabs(["📥 Вывод расписания", "📊 Статистика", "🔍 Поиск свободных окон"])
 

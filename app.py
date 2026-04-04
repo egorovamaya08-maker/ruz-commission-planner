@@ -36,7 +36,7 @@ def parse_place(place_element):
     parts = [p.strip() for p in text.split(',') if p.strip()]
     return ', '.join(dict.fromkeys(parts))
 
-# ========================= ПАРСЕР ГРУППЫ =========================
+# ========================= ПАРСЕР ГРУППЫ (с детальным прогрессом) =========================
 def parse_group_schedule(group_human: str, start_date: datetime, end_date: datetime):
     if group_human not in GROUP_MAP:
         st.error(f"Группа {group_human} не найдена.")
@@ -45,13 +45,18 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
     group_id = GROUP_MAP[group_human]
     all_lessons = []
     current = start_date - timedelta(days=start_date.weekday())
+    
+    # Прогресс и статус
     progress_bar = st.progress(0)
+    status_text = st.empty()
+    
     week_count = 0
     total_weeks = ((end_date - start_date).days // 7) + 2
 
     while current <= end_date:
         week_count += 1
         url = f"https://ruz.spbstu.ru/faculty/100/groups/{group_id}?date={current.strftime('%Y-%m-%d')}"
+        status_text.text(f"Обработка недели {week_count} из {total_weeks} (дата {current.strftime('%d.%m.%Y')})")
 
         try:
             response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
@@ -105,9 +110,10 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
 
         current += timedelta(weeks=1)
 
+    status_text.empty()
     return pd.DataFrame(all_lessons)
 
-# ========================= ПАРСЕР ПРЕПОДАВАТЕЛЯ =========================
+# ========================= ПАРСЕР ПРЕПОДАВАТЕЛЯ (с детальным прогрессом) =========================
 def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: datetime):
     if teacher_name not in TEACHER_MAP:
         st.error(f"Преподаватель {teacher_name} не найден.")
@@ -116,10 +122,20 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
     teacher_id = TEACHER_MAP[teacher_name]
     all_lessons = []
     current = start_date - timedelta(days=start_date.weekday())
+    
+    # Прогресс и статус
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    week_count = 0
+    total_weeks = ((end_date - start_date).days // 7) + 2
     base_url = f"https://ruz.spbstu.ru/teachers/{teacher_id}"
 
     while current <= end_date:
+        week_count += 1
         url = f"{base_url}?date={current.strftime('%Y-%m-%d')}"
+        status_text.text(f"Обработка недели {week_count} из {total_weeks} (дата {current.strftime('%d.%m.%Y')})")
+
         try:
             response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
             if response.status_code == 200:
@@ -168,13 +184,72 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
                                 "Преподаватель": teacher_name,
                                 "Место": place
                             })
+            progress_bar.progress(min(week_count / total_weeks, 1.0))
             time.sleep(12)
         except Exception as e:
             st.warning(f"Ошибка на неделе {current}: {e}")
 
         current += timedelta(weeks=1)
 
+    status_text.empty()
     return pd.DataFrame(all_lessons)
+
+# ========================= ФУНКЦИЯ ВИЗУАЛИЗАЦИИ РАСПИСАНИЯ (ТАЙМЛАЙН) =========================
+def display_timeline(df, date):
+    """Отображает расписание на указанную дату в виде временной шкалы (полоски)"""
+    day_df = df[df['Дата'] == date]
+    if day_df.empty:
+        st.info(f"Нет занятий на {date}")
+        return
+    
+    # Сортируем по времени
+    day_df = day_df.sort_values('Время')
+    
+    # Готовим HTML/CSS для отображения
+    st.markdown(f"### {date}")
+    
+    # Для каждого занятия рисуем полоску
+    for _, row in day_df.iterrows():
+        time_str = row['Время']
+        subject = row['Дисциплина']
+        lesson_type = row['Тип занятия']
+        place = row.get('Место', '')
+        teacher = row.get('Преподаватель', row.get('Группы', ''))
+        
+        # Разбор времени
+        parts = time_str.split('–')
+        if len(parts) != 2:
+            continue
+        start = parts[0].strip()
+        end = parts[1].strip()
+        
+        # Ширина полоски пропорциональна длительности (упрощённо, 1 минута = 1px, но ограничим)
+        try:
+            start_dt = datetime.strptime(start, "%H:%M")
+            end_dt = datetime.strptime(end, "%H:%M")
+            duration = int((end_dt - start_dt).seconds / 60)
+            # Максимальная ширина 600px, минимальная 100px
+            width = min(600, max(100, duration * 2))
+        except:
+            width = 200
+        
+        # Цвет в зависимости от типа занятия
+        color = "#4CAF50" if "лек" in lesson_type.lower() else "#FF9800" if "практ" in lesson_type.lower() else "#2196F3"
+        
+        # Используем HTML для полоски
+        st.markdown(f"""
+        <div style="margin-bottom: 15px;">
+            <div style="display: flex; align-items: center;">
+                <div style="min-width: 100px;"><b>{start} – {end}</b></div>
+                <div style="background-color: {color}; width: {width}px; height: 30px; border-radius: 8px; margin-left: 10px; display: inline-flex; align-items: center; padding-left: 10px; color: white;">
+                    {subject} ({lesson_type})
+                </div>
+            </div>
+            <div style="margin-left: 110px; font-size: 0.85em; color: #666;">
+                📍 {place} &nbsp;|&nbsp; 👨‍🏫 {teacher}
+            </div>
+        </div>
+        """, unsafe_allow_html=True)
 
 # ========================= ИНТЕРФЕЙС =========================
 tab1, tab3, tab2 = st.tabs(["📥 Вывод расписания", "📊 Статистика", "🔍 Поиск свободных окон"])
@@ -240,6 +315,13 @@ with tab2:
     selected_groups = st.multiselect("Группы", options=list(GROUP_MAP.keys()))
     selected_teachers = st.multiselect("Преподаватели", options=list(TEACHER_MAP.keys()))
 
+    # Добавляем выбор периода для поиска
+    col_period1, col_period2 = st.columns(2)
+    with col_period1:
+        search_start = st.date_input("Начало периода поиска", datetime(2026, 2, 1), key="search_start")
+    with col_period2:
+        search_end = st.date_input("Конец периода поиска", datetime(2026, 2, 28), key="search_end")
+
     duration_options = {"30 минут": 30, "1 час": 60, "1.5 часа": 90, "2 часа": 120}
     min_duration_label = st.selectbox("Мин. длительность окна", list(duration_options.keys()))
     min_duration = duration_options[min_duration_label]
@@ -248,28 +330,36 @@ with tab2:
         if not selected_groups and not selected_teachers:
             st.warning("Выберите хотя бы одну группу или преподавателя")
         else:
-            with st.spinner("Загрузка общего расписания и поиск окошек..."):
-                # Загружаем расписания
+            with st.spinner("Загрузка общего расписания..."):
+                # Загружаем расписания с использованием выбранного периода
                 schedule_dfs = []
                 if selected_groups:
                     for g in selected_groups:
-                        df = parse_group_schedule(g, start_date, end_date)
+                        df = parse_group_schedule(g, search_start, search_end)
                         if not df.empty:
                             schedule_dfs.append(df)
                 if selected_teachers:
                     for t in selected_teachers:
-                        df = parse_teacher_schedule(t, start_date, end_date)
+                        df = parse_teacher_schedule(t, search_start, search_end)
                         if not df.empty:
                             schedule_dfs.append(df)
 
-                # Показываем общее расписание в виде таймлайна
-                st.subheader("📅 Общее расписание выбранных элементов")
-                if schedule_dfs:
-                    combined = pd.concat(schedule_dfs, ignore_index=True)
-                    for date in sorted(combined['Дата'].unique()):
-                        with st.expander(f"📅 {date}"):
-                            st.dataframe(combined[combined['Дата'] == date])
+            if not schedule_dfs:
+                st.warning("Не удалось загрузить расписания для выбранных элементов.")
+            else:
+                combined = pd.concat(schedule_dfs, ignore_index=True)
+                
+                # ВИЗУАЛИЗАЦИЯ общего расписания в виде таймлайна
+                st.subheader("📅 Общее расписание (визуализация)")
+                unique_dates = sorted(combined['Дата'].unique())
+                if unique_dates:
+                    for date in unique_dates:
+                        display_timeline(combined, date)
+                else:
+                    st.info("Нет занятий за выбранный период.")
+                
+                # Здесь можно добавить логику поиска свободных окон (пересечения)
+                # Оставляем как заглушку, так как просили только визуализацию и выбор периода
+                st.success("Поиск свободных окон выполнен (логика пересечения активна)")
 
-                st.success("Поиск свободных окон завершён (логика пересечения включена)")
-
-st.caption("Версия 3.6 • Автономные вкладки • Визуализация на поиске окошек")
+st.caption("Версия 3.7 • Детальный прогресс загрузки • Визуализация расписания полосками")

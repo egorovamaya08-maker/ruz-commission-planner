@@ -217,15 +217,16 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
 # ========================= ЛОГИКА КОМИССИЙ =========================
 from datetime import date
 
-# ========================= КОМИССИИ =========================
+# Словарь комиссий (единственный экземпляр)
 COMMISSION_MEMBERS: dict[str, list[str]] = {
     "Комса1": ["Иванов Иван Иванович", "Петров Пётр Петрович"],
     "Комса2": ["Иванов Иван Иванович", "Сидоров Сидор Сидорович"],
     # Добавляй новые комиссии здесь
 }
 
-# ========================= ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ =========================
+
 def generate_time_slots(start: date | datetime, end: date | datetime, hours: range = range(8, 21)) -> list[datetime]:
+    """Генерирует почасовые слоты"""
     if isinstance(start, date) and not isinstance(start, datetime):
         start = datetime.combine(start, datetime.min.time())
     if isinstance(end, date) and not isinstance(end, datetime):
@@ -243,18 +244,8 @@ def generate_time_slots(start: date | datetime, end: date | datetime, hours: ran
     return slots
 
 
-def get_column_labels(commissions: dict) -> list[str]:
-    """Создаёт красивые заголовки: Комса1 (Иванов, Петров)"""
-    labels = []
-    for name, members in commissions.items():
-        short_members = ", ".join(m.split()[0] for m in members[:2])  # только фамилии первых двух
-        if len(members) > 2:
-            short_members += ", ..."
-        labels.append(f"{name}\n({short_members})")
-    return labels
-
-
 def build_empty_matrix(time_slots: list[datetime], commission_names: list[str]) -> pd.DataFrame:
+    """Пустая матрица: строки = время, столбцы = комиссии"""
     slot_labels = [s.strftime("%d.%m %H:%M") for s in time_slots]
     df = pd.DataFrame(index=slot_labels, columns=commission_names)
     df[:] = ""
@@ -262,31 +253,125 @@ def build_empty_matrix(time_slots: list[datetime], commission_names: list[str]) 
 
 
 def auto_mark_conflicts(matrix: pd.DataFrame, commission_members: dict) -> pd.DataFrame:
-    """Автоматически помечает конфликты красным при сохранении"""
+    """Автоматически закрашивает конфликты по общим участникам"""
     df = matrix.copy()
     comms = list(df.columns)
     
     for i in range(len(comms)):
         for j in range(i + 1, len(comms)):
             c1, c2 = comms[i], comms[j]
-            members1 = set(commission_members.get(c1, []))
-            members2 = set(commission_members.get(c2, []))
-            
-            if members1 & members2:  # есть общие участники
-                # Находим слоты, где хотя бы одна комиссия занята
+            if set(commission_members.get(c1, [])) & set(commission_members.get(c2, [])):
                 busy_mask = (df[c1] == "🟥 Занято") | (df[c2] == "🟥 Занято")
-                # Помечаем обе комиссии в этих слотах
                 df.loc[busy_mask, c1] = "🟥 Занято"
                 df.loc[busy_mask, c2] = "🟥 Занято"
-    
     return df
 
 
+def highlight_conflicts(val):
+    if val == "🟥 Занято":
+        return "background-color: #ffcccc; color: #900000; font-weight: bold"
+    return ""
+
+
+# ========================= ИНТЕРФЕЙС =========================
+tab1, tab3, tab2, tab4 = st.tabs([
+    "📥 Вывод расписания",
+    "📊 Статистика",
+    "🔍 Поиск свободных окон",
+    "⚖️ Планирование комиссий"
+])
+
+
 # ========================= ТАБ КОМИССИЙ =========================
+with tab1:
+    st.subheader("📥 Вывод расписания")
+    mode = st.radio("Что выводим?", ["Расписание группы", "Расписание преподавателя"], horizontal=True)
+    col1, col2 = st.columns(2)
+    with col1:
+        start_date = st.date_input("Дата начала", datetime(2026, 2, 1))
+    with col2:
+        end_date = st.date_input("Дата окончания (пока в разработке)", datetime(2026, 5, 25))
+    if mode == "Расписание группы":
+        group_human = st.selectbox("Выберите группу", list(GROUP_MAP.keys()))
+        if st.button("🚀 Показать расписание группы", type="primary"):
+            with st.spinner("Парсинг..."):
+                df = parse_group_schedule(group_human, start_date, end_date)
+                if not df.empty:
+                    st.session_state.schedule_data = {f"Группа {group_human}": df}
+                    st.success(f"✅ Загружено {len(df)} занятий")
+                    for date in sorted(df['Дата'].unique()):
+                        st.subheader(f"📅 {date}")
+                        st.dataframe(df[df['Дата'] == date])
+    else:
+        teacher_name = st.selectbox("Выберите преподавателя", list(TEACHER_MAP.keys()))
+        if st.button("🚀 Показать расписание преподавателя", type="primary"):
+            with st.spinner("Парсинг..."):
+                df = parse_teacher_schedule(teacher_name, start_date, end_date)
+                if not df.empty:
+                    st.session_state.schedule_data = {f"Преподаватель {teacher_name}": df}
+                    st.success(f"✅ Загружено {len(df)} занятий")
+                    for date in sorted(df['Дата'].unique()):
+                        st.subheader(f"📅 {date}")
+                        st.dataframe(df[df['Дата'] == date])
+with tab3:
+    st.subheader("📊 Статистика")
+    if 'schedule_data' in st.session_state and st.session_state.schedule_data:
+        all_dfs = list(st.session_state.schedule_data.values())
+        combined = pd.concat(all_dfs, ignore_index=True)
+        st.metric("Всего занятий", len(combined))
+        st.metric("Период", f"{combined['Дата'].min()} — {combined['Дата'].max()}")
+        col1, col2 = st.columns(2)
+        with col1:
+            st.write("**По типам занятий:**")
+            st.dataframe(combined['Тип занятия'].value_counts())
+        with col2:
+            st.write("**По преподавателям:**")
+            st.dataframe(combined['Преподаватель'].value_counts())
+    else:
+        st.info("Загрузите расписание на вкладке 'Вывод расписания'")
+with tab2:
+    st.subheader("🔍 Поиск свободных окон")
+    st.write("**Выберите группы и преподавателей:**")
+    selected_groups = st.multiselect("Группы", options=list(GROUP_MAP.keys()))
+    selected_teachers = st.multiselect("Преподаватели", options=list(TEACHER_MAP.keys()))
+    col1, col2 = st.columns(2)
+    with col1:
+        search_start = st.date_input("Начало периода", datetime(2026, 2, 1), key="search_start")
+    with col2:
+        search_end = st.date_input("Конец периода", datetime(2026, 2, 28), key="search_end")
+    duration_options = {"30 минут": 30, "1 час": 60, "1.5 часа": 90, "2 часа": 120}
+    min_duration_label = st.selectbox("Мин. длительность окна", list(duration_options.keys()))
+    min_duration = duration_options[min_duration_label]
+    if st.button("🔎 Построить общее расписание", type="primary"):
+        if not selected_groups and not selected_teachers:
+            st.warning("Выберите хотя бы одну группу или преподавателя")
+        else:
+            with st.spinner("Загрузка расписаний..."):
+                schedule_dfs = []
+                if selected_groups:
+                    for g in selected_groups:
+                        df = parse_group_schedule(g, search_start, search_end)
+                        if not df.empty:
+                            schedule_dfs.append(df)
+                if selected_teachers:
+                    for t in selected_teachers:
+                        df = parse_teacher_schedule(t, search_start, search_end)
+                        if not df.empty:
+                            schedule_dfs.append(df)
+                if schedule_dfs:
+                    combined = pd.concat(schedule_dfs, ignore_index=True)
+                    st.success(f"Загружено расписание для {len(selected_groups)} групп и {len(selected_teachers)} преподавателей")
+                    st.subheader("Общее расписание")
+                    for date in sorted(combined['Дата'].unique()):
+                        st.subheader(f"📅 {date}")
+                        st.dataframe(combined[combined['Дата'] == date])
+                else:
+                    st.warning("Не удалось загрузить данные")
+st.caption("Версия 4.2 • Очищенный код")
+
 with tab4:
     st.subheader("⚖️ Планирование комиссий")
-
-    st.caption("Редактируй ячейки → пиши **🟥 Занято**. При сохранении автоматически подсвечиваются конфликты по участникам.")
+    st.caption("Редактируй ячейки → пиши **🟥 Занято**. При сохранении автоматически подсвечиваются конфликты по общим участникам.")
 
     colA, colB = st.columns(2)
     with colA:
@@ -294,7 +379,7 @@ with tab4:
     with colB:
         matrix_end = st.date_input("Конец периода", datetime(2026, 4, 10).date(), key="m_end")
 
-    # Инициализация / перестройка матрицы
+    # Инициализация матрицы
     if "commission_matrix" not in st.session_state:
         time_slots = generate_time_slots(matrix_start, matrix_end)
         st.session_state.commission_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
@@ -304,7 +389,7 @@ with tab4:
         st.session_state.commission_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
         st.rerun()
 
-    # Редактируемая таблица (строки = время, столбцы = комиссии)
+    # Редактируемая таблица
     column_config = {
         comm: st.column_config.TextColumn(
             comm,
@@ -324,145 +409,19 @@ with tab4:
         hide_index=False,
     )
 
-    # Сохранение + авторазметка конфликтов
+    # Сохранение
     if st.button("💾 Сохранить и проверить конфликты", type="primary", use_container_width=True):
-        # Автоматически помечаем все конфликты
         final_matrix = auto_mark_conflicts(edited_matrix, COMMISSION_MEMBERS)
-        
         st.session_state.commission_matrix = final_matrix
-        
-        # Проверка наличия конфликтов (для сообщения пользователю)
-        busy_slots = final_matrix[final_matrix == "🟥 Занято"].stack().dropna()
-        if len(busy_slots) > 0:
-            st.success(f"✅ Сохранено. Занятых слотов: {len(busy_slots)}")
+
+        busy_count = (final_matrix == "🟥 Занято").sum().sum()
+        if busy_count > 0:
+            st.success(f"✅ Сохранено. Занятых слотов: {busy_count}")
         else:
             st.info("Сохранено. Пока нет занятых слотов.")
-        
         st.rerun()
 
-    # Красивая визуализация
+    # Визуализация
     st.subheader("Визуализация расписания комиссий")
-    def highlight_conflicts(val):
-        if val == "🟥 Занято":
-            return "background-color: #ffcccc; color: #900000; font-weight: bold"
-        return ""
-
     styled_matrix = st.session_state.commission_matrix.style.map(highlight_conflicts)
     st.dataframe(styled_matrix, use_container_width=True)
-    
-# ========================= ИНТЕРФЕЙС =========================
-tab1, tab3, tab2, tab4 = st.tabs([
-    "📥 Вывод расписания",
-    "📊 Статистика",
-    "🔍 Поиск свободных окон",
-    "⚖️ Планирование комиссий"
-])
-
-with tab1:
-    st.subheader("📥 Вывод расписания")
-    mode = st.radio("Что выводим?", ["Расписание группы", "Расписание преподавателя"], horizontal=True)
-    col1, col2 = st.columns(2)
-    with col1:
-        start_date = st.date_input("Дата начала", datetime(2026, 2, 1))
-    with col2:
-        end_date = st.date_input("Дата окончания (пока в разработке)", datetime(2026, 5, 25))
-
-    if mode == "Расписание группы":
-        group_human = st.selectbox("Выберите группу", list(GROUP_MAP.keys()))
-        if st.button("🚀 Показать расписание группы", type="primary"):
-            with st.spinner("Парсинг..."):
-                df = parse_group_schedule(group_human, start_date, end_date)
-                if not df.empty:
-                    st.session_state.schedule_data = {f"Группа {group_human}": df}
-                    st.success(f"✅ Загружено {len(df)} занятий")
-                    for date in sorted(df['Дата'].unique()):
-                        st.subheader(f"📅 {date}")
-                        st.dataframe(df[df['Дата'] == date])
-    else:
-        teacher_name = st.selectbox("Выберите преподавателя", list(TEACHER_MAP.keys()))
-        if st.button("🚀 Показать расписание преподавателя", type="primary"):
-            with st.spinner("Парсинг..."):
-                df = parse_teacher_schedule(teacher_name, start_date, end_date)
-                if not df.empty:
-                    st.session_state.schedule_data = {f"Преподаватель {teacher_name}": df}
-                    st.success(f"✅ Загружено {len(df)} занятий")
-                    for date in sorted(df['Дата'].unique()):
-                        st.subheader(f"📅 {date}")
-                        st.dataframe(df[df['Дата'] == date])
-
-with tab3:
-    st.subheader("📊 Статистика")
-    if 'schedule_data' in st.session_state and st.session_state.schedule_data:
-        all_dfs = list(st.session_state.schedule_data.values())
-        combined = pd.concat(all_dfs, ignore_index=True)
-        st.metric("Всего занятий", len(combined))
-        st.metric("Период", f"{combined['Дата'].min()} — {combined['Дата'].max()}")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("**По типам занятий:**")
-            st.dataframe(combined['Тип занятия'].value_counts())
-        with col2:
-            st.write("**По преподавателям:**")
-            st.dataframe(combined['Преподаватель'].value_counts())
-    else:
-        st.info("Загрузите расписание на вкладке 'Вывод расписания'")
-
-with tab2:
-    st.subheader("🔍 Поиск свободных окон")
-    st.write("**Выберите группы и преподавателей:**")
-    selected_groups = st.multiselect("Группы", options=list(GROUP_MAP.keys()))
-    selected_teachers = st.multiselect("Преподаватели", options=list(TEACHER_MAP.keys()))
-    col1, col2 = st.columns(2)
-    with col1:
-        search_start = st.date_input("Начало периода", datetime(2026, 2, 1), key="search_start")
-    with col2:
-        search_end = st.date_input("Конец периода", datetime(2026, 2, 28), key="search_end")
-    duration_options = {"30 минут": 30, "1 час": 60, "1.5 часа": 90, "2 часа": 120}
-    min_duration_label = st.selectbox("Мин. длительность окна", list(duration_options.keys()))
-    min_duration = duration_options[min_duration_label]
-    if st.button("🔎 Построить общее расписание", type="primary"):
-        if not selected_groups and not selected_teachers:
-            st.warning("Выберите хотя бы одну группу или преподавателя")
-        else:
-            with st.spinner("Загрузка расписаний..."):
-                schedule_dfs = []
-                if selected_groups:
-                    for g in selected_groups:
-                        df = parse_group_schedule(g, search_start, search_end)
-                        if not df.empty:
-                            schedule_dfs.append(df)
-                if selected_teachers:
-                    for t in selected_teachers:
-                        df = parse_teacher_schedule(t, search_start, search_end)
-                        if not df.empty:
-                            schedule_dfs.append(df)
-                if schedule_dfs:
-                    combined = pd.concat(schedule_dfs, ignore_index=True)
-                    st.success(f"Загружено расписание для {len(selected_groups)} групп и {len(selected_teachers)} преподавателей")
-                    st.subheader("Общее расписание")
-                    for date in sorted(combined['Дата'].unique()):
-                        st.subheader(f"📅 {date}")
-                        st.dataframe(combined[combined['Дата'] == date])
-                else:
-                    st.warning("Не удалось загрузить данные")
-
-st.caption("Версия 4.2 • Очищенный код")
-
-def build_empty_matrix(time_slots: list[datetime], commissions: list[str]) -> pd.DataFrame:
-    """Пустая матрица: строки = слоты, столбцы = комиссии"""
-    slot_labels = [s.strftime("%d.%m %H:%M") for s in time_slots]
-    data = {slot: {comm: "" for comm in commissions} for slot in slot_labels}
-    return pd.DataFrame.from_dict(data, orient="index")
-
-
-def has_conflicts(matrix: pd.DataFrame, commission_members: dict) -> tuple[bool, list[str]]:
-    """Проверяет конфликты по участникам и занятым слотам"""
-    comms = list(matrix.columns)
-    conflicts = []
-    for i in range(len(comms)):
-        for j in range(i + 1, len(comms)):
-            c1, c2 = comms[i], comms[j]
-            if set(commission_members.get(c1, [])) & set(commission_members.get(c2, [])):
-                if (matrix[c1] == "🟥 Занято") & (matrix[c2] == "🟥 Занято").any():
-                    conflicts.append(f"{c1} ↔ {c2}")
-    return len(conflicts) > 0, conflicts

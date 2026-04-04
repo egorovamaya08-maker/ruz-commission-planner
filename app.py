@@ -402,7 +402,7 @@ with tab4:
         final_matrix = auto_mark_conflicts(edited_df, COMMISSION_MEMBERS)
         st.session_state.commission_matrix = final_matrix.copy()
         
-        conflict_count = final_matrix.applymap(lambda x: "🟥" in str(x)).sum().sum()
+        conflict_count = final_matrix.map(lambda x: "🟥" in str(x)).sum().sum()
         if conflict_count > 0:
             st.success(f"✅ Сохранено. Обнаружено конфликтов: {conflict_count}")
         else:

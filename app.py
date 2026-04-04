@@ -192,19 +192,17 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
     return pd.DataFrame(all_lessons)
 
 # ========================= КАЛЕНДАРЬ-МАТРИЦА =========================
-def display_calendar_matrix(start_date, end_date, time_step="По часам"):
-    """Отображает календарь-матрицу занятости на основе уже загруженных данных"""
-    if 'schedule_data' not in st.session_state or not st.session_state.schedule_data:
-        st.info("Нет загруженных расписаний. Сначала выведите расписание на первой вкладке.")
-        return
-
-    # Объединяем все загруженные расписания
-    all_dfs = list(st.session_state.schedule_data.values())
-    combined_df = pd.concat(all_dfs, ignore_index=True)
-
+def display_calendar_matrix(combined_df, start_date, end_date):
+    """Отображает календарь-матрицу занятости"""
     if combined_df.empty:
         st.info("Нет данных для отображения календаря.")
         return
+
+    # Преобразуем date в datetime, если нужно
+    if isinstance(start_date, datetime.date) and not isinstance(start_date, datetime.datetime):
+        start_date = datetime.combine(start_date, datetime.min.time())
+    if isinstance(end_date, datetime.date) and not isinstance(end_date, datetime.datetime):
+        end_date = datetime.combine(end_date, datetime.min.time())
 
     # Генерируем слоты по часу с 9:00 до 21:30
     slots = []
@@ -235,7 +233,7 @@ def display_calendar_matrix(start_date, end_date, time_step="По часам"):
             events = []
 
             for _, row in day_df.iterrows():
-                if '–' not in str(row['Время']):
+                if '–' not in str(row.get('Время', '')):
                     continue
                 try:
                     start_str, end_str = str(row['Время']).split('–')

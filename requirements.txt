@@ -3,6 +3,4 @@ pandas
 requests
 beautifulsoup4
 supabase
-sqlalchemy
 psycopg2-binary
-python-dotenv

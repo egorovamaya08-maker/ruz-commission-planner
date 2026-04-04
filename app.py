@@ -333,6 +333,7 @@ with tab2:
                     st.warning("Не удалось загрузить данные")
 
 # ========================= ТАБ 4: ПЛАНИРОВАНИЕ КОМИССИЙ =========================
+# ========================= ТАБ 4: ПЛАНИРОВАНИЕ КОМИССИЙ =========================
 with tab4:
     st.subheader("⚖️ Планирование комиссий")
     st.caption("Редактируй ячейки → пиши **🟥 Занято**. При сохранении автоматически подсвечиваются конфликты по общим участникам.")
@@ -343,25 +344,29 @@ with tab4:
     with colB:
         matrix_end = st.date_input("Конец периода", datetime(2026, 4, 10).date(), key="m_end")
 
+    # Инициализация матрицы
     if "commission_matrix" not in st.session_state:
         time_slots = generate_time_slots(matrix_start, matrix_end)
         st.session_state.commission_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
 
+    # Кнопка перестройки матрицы
     if st.button("🔄 Перестроить матрицу под новый период (очистить)"):
         time_slots = generate_time_slots(matrix_start, matrix_end)
         st.session_state.commission_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
         st.rerun()
 
+    # Конфигурация колонок
     column_config = {
         comm: st.column_config.TextColumn(
             comm,
-            help="Оставь пустым или напиши «🟥 Занято»",
+            help="Напиши «🟥 Занято» или оставь пустым",
             default="",
             max_chars=20,
         )
         for comm in COMMISSION_MEMBERS.keys()
     }
 
+    # Редактируемая таблица
     edited_matrix = st.data_editor(
         st.session_state.commission_matrix,
         use_container_width=True,
@@ -371,19 +376,23 @@ with tab4:
         hide_index=False,
     )
 
-    if st.button("💾 Сохранить и проверить конфликты", type="primary", use_container_width=True):
+    # === Кнопка сохранения ===
+    if st.button("💾 Сохранить изменения и применить конфликты", type="primary", use_container_width=True):
+        # Применяем автоматическую разметку конфликтов
         final_matrix = auto_mark_conflicts(edited_matrix, COMMISSION_MEMBERS)
-        st.session_state.commission_matrix = final_matrix
-
+        
+        # Важно: обновляем session_state
+        st.session_state.commission_matrix = final_matrix.copy()
+        
         busy_count = (final_matrix == "🟥 Занято").sum().sum()
         if busy_count > 0:
-            st.success(f"✅ Сохранено. Занятых слотов: {busy_count}")
+            st.success(f"✅ Сохранено и конфликты применены. Занятых слотов: {busy_count}")
         else:
-            st.info("Сохранено. Пока нет занятых слотов.")
-        st.rerun()
+            st.info("✅ Сохранено. Пока нет занятых слотов.")
+        
+        st.rerun()   # ← это важно для обновления таблицы
 
+    # Визуализация (всегда показывает актуальное состояние из session_state)
     st.subheader("Визуализация расписания комиссий")
     styled_matrix = st.session_state.commission_matrix.style.map(highlight_conflicts)
     st.dataframe(styled_matrix, use_container_width=True)
-
-st.caption("Версия 4.3 • Исправлена проблема с невидимыми символами")

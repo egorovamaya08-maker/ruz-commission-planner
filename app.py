@@ -24,11 +24,20 @@ TEACHER_MAP = {
     "Степанова Ксения Сергеевна": "20342",
 }
 
-# ========================= КОМИССИИ =========================
+# ========================= КОМИССИИ (расширенный тестовый набор) =========================
 COMMISSION_MEMBERS: dict[str, list[str]] = {
-    "Комса1": ["Иванов Иван Иванович", "Петров Пётр Петрович"],
+    "Комса1": ["Иванов Иван Иванович", "Петров Пётр Петрович", "Смирнова Анна Сергеевна"],
     "Комса2": ["Иванов Иван Иванович", "Сидоров Сидор Сидорович"],
-    # Добавляй новые комиссии сюда
+    "Комса3": ["Петров Пётр Петрович", "Кузнецова Елена Викторовна"],
+    "Комса4": ["Смирнова Анна Сергеевна", "Попов Дмитрий Александрович"],
+    "Комса5": ["Иванов Иван Иванович", "Кузнецова Елена Викторовна", "Васильев Сергей Николаевич"],
+    "Комса6": ["Сидоров Сидор Сидорович", "Попов Дмитрий Александрович"],
+    "Комса7": ["Васильев Сергей Николаевич", "Смирнова Анна Сергеевна"],
+    "Комса8": ["Кузнецова Елена Викторовна", "Петров Пётр Петрович"],
+    "Комса9": ["Попов Дмитрий Александрович", "Иванов Иван Иванович"],
+    "Комса10": ["Васильев Сергей Николаевич", "Сидоров Сидор Сидорович", "Кузнецова Елена Викторовна"],
+    "Комса11": ["Смирнова Анна Сергеевна", "Попов Дмитрий Александрович"],
+    "Комса12": ["Петров Пётр Петрович", "Васильев Сергей Николаевич"]
 }
 
 # ========================= ПАРСЕРЫ =========================
@@ -215,25 +224,18 @@ def build_empty_matrix(time_slots: list[datetime], commission_names: list[str]) 
 
 
 def auto_mark_conflicts(matrix: pd.DataFrame, commission_members: dict) -> pd.DataFrame:
-    """Нормализация ввода + автоматическое нанесение конфликтов"""
+    """Любой непустой текст = занято + автоматические конфликты"""
     if matrix is None:
         return pd.DataFrame()
     
-    df = matrix.copy()
+    df = matrix.copy().astype(str).fillna("")
     
-    # Приводим всё к строкам
+    # Любой текст, который не пустая строка — считаем занято
     for col in df.columns:
-        df[col] = df[col].astype(str).fillna("")
         df[col] = df[col].str.strip()
-        
-        # Нормализация разных вариантов написания
-        mask_occupied = df[col].str.lower().isin(['занято', '🟥 занято', 'занят', 'busy', 'occupied'])
-        df.loc[mask_occupied, col] = "🟥 Занято"
-        
-        # Всё остальное очищаем
-        df.loc[~mask_occupied, col] = ""
+        df[col] = df[col].where(df[col] == "", "🟥 Занято")
     
-    # Применяем конфликты по общим участникам
+    # Применяем конфликты по пересекающимся участникам
     comms = list(df.columns)
     for i in range(len(comms)):
         for j in range(i + 1, len(comms)):
@@ -344,10 +346,10 @@ with tab2:
                     st.warning("Не удалось загрузить данные")
 
 # ========================= ТАБ 4: ПЛАНИРОВАНИЕ КОМИССИЙ =========================
-# ========================= ТАБ 4: ПЛАНИРОВАНИЕ КОМИССИЙ =========================
 with tab4:
     st.subheader("⚖️ Планирование комиссий")
-    st.caption("Напишите **Занято** в ячейку и нажмите кнопку ниже. Конфликты применятся автоматически.")
+    st.caption("Можешь писать в ячейки что угодно (например: «Заседание», «Встреча», «1», «Да» и т.д.). "
+               "При нажатии «Сохранить» всё, что не пусто, будет считаться занятым, и конфликты по общим участникам применятся автоматически.")
 
     colA, colB = st.columns(2)
     with colA:
@@ -355,7 +357,6 @@ with tab4:
     with colB:
         matrix_end = st.date_input("Конец периода", datetime(2026, 4, 10).date(), key="m_end")
 
-    # Инициализация матрицы
     if "commission_matrix" not in st.session_state:
         time_slots = generate_time_slots(matrix_start, matrix_end)
         st.session_state.commission_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
@@ -365,17 +366,16 @@ with tab4:
         st.session_state.commission_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
         st.rerun()
 
-    # Настройка колонок
+    # Заголовки колонок
     column_config = {
         comm: st.column_config.TextColumn(
             f"{comm} ({', '.join(m.split()[0] for m in COMMISSION_MEMBERS[comm][:2])})",
             default="",
-            max_chars=20,
+            max_chars=30,
         )
         for comm in COMMISSION_MEMBERS.keys()
     }
 
-    # Редактируемая таблица
     edited_df = st.data_editor(
         st.session_state.commission_matrix,
         use_container_width=True,
@@ -385,25 +385,16 @@ with tab4:
         hide_index=False,
     )
 
-    # Кнопка применения
-    if st.button("💾 Применить изменения и конфликты", type="primary", use_container_width=True):
-        if edited_df is not None:
-            final_matrix = auto_mark_conflicts(edited_df, COMMISSION_MEMBERS)
-            st.session_state.commission_matrix = final_matrix.copy()
-            
-            busy_count = (final_matrix == "🟥 Занято").sum().sum()
-            if busy_count > 0:
-                st.success(f"✅ Применено. Занятых слотов: {busy_count}")
-            else:
-                st.info("✅ Изменения сохранены.")
-            
-            st.rerun()
+    if st.button("💾 Сохранить", type="primary", use_container_width=True):
+        final_matrix = auto_mark_conflicts(edited_df, COMMISSION_MEMBERS)
+        st.session_state.commission_matrix = final_matrix.copy()
+        
+        busy_count = (final_matrix == "🟥 Занято").sum().sum()
+        if busy_count > 0:
+            st.success(f"✅ Сохранено. Занятых слотов: {busy_count}")
         else:
-            st.warning("Нет данных для обработки")
+            st.info("✅ Сохранено.")
+        
+        st.rerun()
 
-    # Отображение результата
-    st.subheader("Текущее расписание комиссий")
-    styled = st.session_state.commission_matrix.style.map(
-        lambda x: "background-color: #ffcccc; color: #900000; font-weight: bold" if "🟥 Занято" in str(x) else ""
-    )
-    st.dataframe(styled, use_container_width=True)
+    # Убрали дублирующую секцию "Текущее расписание"

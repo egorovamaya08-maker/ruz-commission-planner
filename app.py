@@ -25,6 +25,7 @@ TEACHER_MAP = {
 }
 
 # ========================= КОМИССИИ (расширенный тестовый набор) =========================
+
 COMMISSION_MEMBERS: dict[str, list[str]] = {
     "Комса1": ["Иванов Иван Иванович", "Петров Пётр Петрович", "Смирнова Анна Сергеевна"],
     "Комса2": ["Иванов Иван Иванович", "Сидоров Сидор Сидорович"],
@@ -348,30 +349,38 @@ with tab2:
 # ========================= ТАБ 4: ПЛАНИРОВАНИЕ КОМИССИЙ =========================
 with tab4:
     st.subheader("⚖️ Планирование комиссий")
-    st.caption("Можешь писать в ячейки что угодно (например: «Заседание», «Встреча», «1», «Да» и т.д.). "
-               "При нажатии «Сохранить» всё, что не пусто, будет считаться занятым, и конфликты по общим участникам применятся автоматически.")
+    st.caption("Пишите в ячейки любое обозначение занятости (Занято, Да, Встреча и т.д.). При сохранении конфликты по участникам применяются автоматически.")
 
     colA, colB = st.columns(2)
     with colA:
         matrix_start = st.date_input("Начало периода", datetime(2026, 4, 1).date(), key="m_start")
     with colB:
-        matrix_end = st.date_input("Конец периода", datetime(2026, 4, 10).date(), key="m_end")
+        matrix_end = st.date_input("Конец периода", datetime(2026, 4, 3).date(), key="m_end")   # можно менять
 
-    if "commission_matrix" not in st.session_state:
+    # Инициализация / перестройка матрицы
+    if "commission_matrix" not in st.session_state or st.button("🔄 Перестроить матрицу под выбранный период (очистить)"):
         time_slots = generate_time_slots(matrix_start, matrix_end)
         st.session_state.commission_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
+        if "commission_matrix" in st.session_state:  # чтобы не срабатывало при первой загрузке дважды
+            st.rerun()
 
-    if st.button("🔄 Перестроить матрицу под новый период (очистить)"):
-        time_slots = generate_time_slots(matrix_start, matrix_end)
-        st.session_state.commission_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
-        st.rerun()
+    # Формируем красивые заголовки: только Фамилия И.О.
+    def format_header(members: list[str]) -> str:
+        short = []
+        for m in members:
+            parts = m.split()
+            if len(parts) >= 2:
+                short.append(f"{parts[0]} {parts[1][0]}.{parts[2][0]}." if len(parts) >= 3 else f"{parts[0]} {parts[1][0]}.")
+            else:
+                short.append(m)
+        return ", ".join(short)
 
-    # Заголовки колонок
     column_config = {
         comm: st.column_config.TextColumn(
-            f"{comm} ({', '.join(m.split()[0] for m in COMMISSION_MEMBERS[comm][:2])})",
+            format_header(COMMISSION_MEMBERS[comm]),
             default="",
             max_chars=30,
+            help="Любой текст = занято"
         )
         for comm in COMMISSION_MEMBERS.keys()
     }
@@ -396,5 +405,3 @@ with tab4:
             st.info("✅ Сохранено.")
         
         st.rerun()
-
-    # Убрали дублирующую секцию "Текущее расписание"

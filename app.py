@@ -36,7 +36,7 @@ def parse_place(place_element):
     parts = [p.strip() for p in text.split(',') if p.strip()]
     return ', '.join(dict.fromkeys(parts))
 
-# ========================= ПАРСЕР ГРУППЫ (с детальным прогрессом) =========================
+# ========================= ПАРСЕР ГРУППЫ (исправленный) =========================
 def parse_group_schedule(group_human: str, start_date: datetime, end_date: datetime):
     if group_human not in GROUP_MAP:
         st.error(f"Группа {group_human} не найдена.")
@@ -45,8 +45,8 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
     group_id = GROUP_MAP[group_human]
     all_lessons = []
     
-    # Находим первый понедельник, который >= start_date
-    days_ahead = 0 - start_date.weekday()  # weekday: пн=0, вс=6
+    # Первый понедельник >= start_date
+    days_ahead = 0 - start_date.weekday()
     if days_ahead < 0:
         days_ahead += 7
     current = start_date + timedelta(days=days_ahead)
@@ -71,7 +71,7 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
                     if not date_elem:
                         continue
                     date_text = date_elem.text.strip()
-                    # Проверяем, что дата занятия входит в интервал [start_date, end_date]
+                    # Фильтр по дате
                     try:
                         lesson_date = datetime.strptime(date_text, "%d.%m.%Y")
                         if lesson_date < start_date or lesson_date > end_date:
@@ -124,7 +124,7 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
     status_text.empty()
     return pd.DataFrame(all_lessons)
 
-# ========================= ПАРСЕР ПРЕПОДАВАТЕЛЯ (с детальным прогрессом) =========================
+# ========================= ПАРСЕР ПРЕПОДАВАТЕЛЯ (исправленный) =========================
 def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: datetime):
     if teacher_name not in TEACHER_MAP:
         st.error(f"Преподаватель {teacher_name} не найден.")
@@ -133,7 +133,6 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
     teacher_id = TEACHER_MAP[teacher_name]
     all_lessons = []
     
-    # Находим первый понедельник, который >= start_date
     days_ahead = 0 - start_date.weekday()
     if days_ahead < 0:
         days_ahead += 7
@@ -215,41 +214,97 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
     status_text.empty()
     return pd.DataFrame(all_lessons)
 
-# ========================= ФУНКЦИЯ ВИЗУАЛИЗАЦИИ РАСПИСАНИЯ (ТАЙМЛАЙН) =========================
-def display_timeline(df, date):
-    """Отображает расписание на указанную дату в виде цветных карточек"""
-    day_df = df[df['Дата'] == date]
-    if day_df.empty:
-        st.info(f"Нет занятий на {date}")
-        return
+# ========================= ФУНКЦИЯ ДЛЯ ПОСТРОЕНИЯ ТАБЛИЦЫ-КАЛЕНДАРЯ =========================
+def build_calendar_table(schedule_dfs, start_date, end_date, hour_start=9, hour_end=21):
+    """
+    Строит HTML-таблицу с временными слотами (часами) и датами.
+    schedule_dfs: список DataFrame с расписаниями выбранных групп и преподавателей
+    """
+    if not schedule_dfs:
+        return "<p>Нет данных для отображения</p>"
     
-    day_df = day_df.sort_values('Время')
+    # Объединяем все расписания
+    combined = pd.concat(schedule_dfs, ignore_index=True)
+    # Приводим даты к единому формату
+    combined['Дата_obj'] = pd.to_datetime(combined['Дата'], format='%d.%m.%Y', errors='coerce')
+    # Отбираем только нужный диапазон
+    mask = (combined['Дата_obj'] >= pd.Timestamp(start_date)) & (combined['Дата_obj'] <= pd.Timestamp(end_date))
+    combined = combined[mask].copy()
+    if combined.empty:
+        return "<p>Нет занятий за выбранный период</p>"
     
-    st.markdown(f"### 📅 {date}")
-    for _, row in day_df.iterrows():
-        time_str = row['Время']
-        subject = row['Дисциплина']
-        lesson_type = row['Тип занятия']
-        place = row.get('Место', '')
-        teacher = row.get('Преподаватель', row.get('Группы', ''))
-        
-        # Цвет фона в зависимости от типа занятия
-        if "лек" in lesson_type.lower():
-            color = "#E3F2FD"  # светло-синий
-            border_color = "#2196F3"
-        elif "практ" in lesson_type.lower():
-            color = "#FFF3E0"  # светло-оранжевый
-            border_color = "#FF9800"
-        else:
-            color = "#F3E5F5"  # светло-фиолетовый
-            border_color = "#9C27B0"
-        
-        st.markdown(f"""
-        <div style="background-color: {color}; padding: 10px; border-radius: 8px; border-left: 5px solid {border_color}; margin-bottom: 10px;">
-            <b>{time_str}</b> – {subject} ({lesson_type})<br>
-            📍 {place} &nbsp;|&nbsp; 👨‍🏫 {teacher}
-        </div>
-        """, unsafe_allow_html=True)
+    # Список уникальных дат в диапазоне
+    date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+    date_strs = [d.strftime('%d.%m.%Y') for d in date_range]
+    
+    # Часовые слоты
+    slots = [f"{h:02d}:00-{h+1:02d}:00" for h in range(hour_start, hour_end)]
+    
+    # Для каждой даты и каждого слота собираем информацию о занятиях
+    cell_data = {}
+    for date_obj in date_range:
+        date_str = date_obj.strftime('%d.%m.%Y')
+        day_lessons = combined[combined['Дата_obj'] == date_obj]
+        cell_data[date_str] = {}
+        for slot in slots:
+            slot_hour = int(slot.split(':')[0])
+            slot_start = datetime.strptime(f"{slot_hour:02d}:00", "%H:%M")
+            slot_end = datetime.strptime(f"{slot_hour+1:02d}:00", "%H:%M")
+            # Ищем занятия, пересекающиеся со слотом
+            intersecting = []
+            for _, row in day_lessons.iterrows():
+                time_str = row['Время']
+                if '–' not in time_str:
+                    continue
+                start_str, end_str = time_str.split('–')
+                start_str = start_str.strip()
+                end_str = end_str.strip()
+                try:
+                    start_time = datetime.strptime(start_str, "%H:%M")
+                    end_time = datetime.strptime(end_str, "%H:%M")
+                except:
+                    continue
+                # Пересечение интервалов
+                if start_time < slot_end and end_time > slot_start:
+                    # Формируем текст для ячейки
+                    subject = row['Дисциплина']
+                    lesson_type = row['Тип занятия']
+                    teacher = row.get('Преподаватель', row.get('Группы', ''))
+                    place = row.get('Место', '')
+                    intersecting.append(f"{subject} ({lesson_type})<br>{teacher}<br>{place}")
+            if intersecting:
+                cell_data[date_str][slot] = "<br>".join(intersecting)
+            else:
+                cell_data[date_str][slot] = "СВОБОДНО"
+    
+    # Строим HTML-таблицу с CSS для подсветки
+    html = '<div style="overflow-x: auto;"><table style="border-collapse: collapse; width: 100%; font-size: 12px;">'
+    # Заголовок (даты)
+    html += '<thead><tr><th style="border: 1px solid #ddd; padding: 8px;">Время</th>'
+    for d in date_strs:
+        # Форматируем дату: день недели + число
+        dt = datetime.strptime(d, '%d.%m.%Y')
+        weekday = dt.strftime('%a')
+        html += f'<th style="border: 1px solid #ddd; padding: 8px;">{weekday}<br>{d}</th>'
+    html += '</tr></thead><tbody>'
+    
+    # Строки для каждого слота
+    for slot in slots:
+        html += f'<tr><td style="border: 1px solid #ddd; padding: 8px; font-weight: bold;">{slot}</td>'
+        for d in date_strs:
+            content = cell_data.get(d, {}).get(slot, "Нет данных")
+            # Цвет фона: если "СВОБОДНО" - зелёный, иначе красный/оранжевый
+            if "СВОБОДНО" in content:
+                bg_color = "#d4edda"  # светло-зелёный
+                text_color = "#155724"
+            else:
+                bg_color = "#f8d7da"  # светло-красный
+                text_color = "#721c24"
+            html += f'<td style="border: 1px solid #ddd; padding: 8px; background-color: {bg_color}; color: {text_color};">{content}</td>'
+        html += '</tr>'
+    
+    html += '</tbody></table></div>'
+    return html
 
 # ========================= ИНТЕРФЕЙС =========================
 tab1, tab3, tab2 = st.tabs(["📥 Вывод расписания", "📊 Статистика", "🔍 Поиск свободных окон"])
@@ -258,7 +313,7 @@ tab1, tab3, tab2 = st.tabs(["📥 Вывод расписания", "📊 Ста
 with tab1:
     st.subheader("📥 Вывод расписания")
 
-    mode = st.radio("Доступные варианты", ["Расписание группы", "Расписание преподавателя"], horizontal=True)
+    mode = st.radio("Что выводим?", ["Расписание группы", "Расписание преподавателя"], horizontal=True)
 
     col1, col2 = st.columns(2)
     with col1:
@@ -309,29 +364,23 @@ with tab3:
 
 # ====================== ВКЛАДКА 3: ПОИСК СВОБОДНЫХ ОКОН ======================
 with tab2:
-    st.subheader("🔍 Поиск свободных окон")
+    st.subheader("🔍 Поиск свободных окон (таблица-календарь)")
 
     st.write("**Выберите группы и преподавателей:**")
     selected_groups = st.multiselect("Группы", options=list(GROUP_MAP.keys()))
     selected_teachers = st.multiselect("Преподаватели", options=list(TEACHER_MAP.keys()))
 
-    # Добавляем выбор периода для поиска
     col_period1, col_period2 = st.columns(2)
     with col_period1:
         search_start = st.date_input("Начало периода поиска", datetime(2026, 2, 1), key="search_start")
     with col_period2:
         search_end = st.date_input("Конец периода поиска", datetime(2026, 2, 28), key="search_end")
 
-    duration_options = {"30 минут": 30, "1 час": 60, "1.5 часа": 90, "2 часа": 120}
-    min_duration_label = st.selectbox("Мин. длительность окна", list(duration_options.keys()))
-    min_duration = duration_options[min_duration_label]
-
-    if st.button("🔎 Найти свободные окна", type="primary"):
+    if st.button("🔎 Построить календарь", type="primary"):
         if not selected_groups and not selected_teachers:
             st.warning("Выберите хотя бы одну группу или преподавателя")
         else:
-            with st.spinner("Загрузка общего расписания..."):
-                # Загружаем расписания с использованием выбранного периода
+            with st.spinner("Загрузка расписаний..."):
                 schedule_dfs = []
                 if selected_groups:
                     for g in selected_groups:
@@ -343,23 +392,13 @@ with tab2:
                         df = parse_teacher_schedule(t, search_start, search_end)
                         if not df.empty:
                             schedule_dfs.append(df)
-
+            
             if not schedule_dfs:
                 st.warning("Не удалось загрузить расписания для выбранных элементов.")
             else:
-                combined = pd.concat(schedule_dfs, ignore_index=True)
-                
-                # ВИЗУАЛИЗАЦИЯ общего расписания в виде таймлайна
-                st.subheader("📅 Общее расписание (визуализация)")
-                unique_dates = sorted(combined['Дата'].unique())
-                if unique_dates:
-                    for date in unique_dates:
-                        display_timeline(combined, date)
-                else:
-                    st.info("Нет занятий за выбранный период.")
-                
-                # Здесь можно добавить логику поиска свободных окон (пересечения)
-                # Оставляем как заглушку, так как просили только визуализацию и выбор периода
-                st.success("Поиск свободных окон выполнен (логика пересечения активна)")
+                # Строим календарь
+                html_table = build_calendar_table(schedule_dfs, search_start, search_end, hour_start=9, hour_end=21)
+                st.markdown(html_table, unsafe_allow_html=True)
+                st.caption("Зелёные ячейки — свободные слоты (нет занятий у выбранных групп и преподавателей). Красные — занято.")
 
-st.caption("Версия 3.7 • Детальный прогресс загрузки • Визуализация расписания полосками")
+st.caption("Версия 4.0 • Таблица-календарь с часовыми слотами • Исправлен парсинг дат")

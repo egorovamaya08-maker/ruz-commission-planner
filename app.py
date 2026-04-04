@@ -44,7 +44,11 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
 
     group_id = GROUP_MAP[group_human]
     all_lessons = []
+
+    # Находим первый понедельник ≥ start_date
     current = start_date - timedelta(days=start_date.weekday())
+    if current < start_date:
+        current += timedelta(weeks=1)
 
     progress_bar = st.progress(0)
     week_count = 0
@@ -63,6 +67,14 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
                     if not date_elem:
                         continue
                     date_text = date_elem.text.strip()
+
+                    # Фильтруем занятия строго внутри выбранного периода
+                    try:
+                        lesson_date = datetime.strptime(date_text, "%d.%m.%Y")
+                        if lesson_date < start_date or lesson_date > end_date:
+                            continue
+                    except:
+                        pass
 
                     for lesson in day.find_all('li', class_='lesson'):
                         subject = ""
@@ -116,12 +128,16 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
 
     teacher_id = TEACHER_MAP[teacher_name]
     all_lessons = []
+
+    # Находим первый понедельник ≥ start_date
     current = start_date - timedelta(days=start_date.weekday())
-    base_url = f"https://ruz.spbstu.ru/teachers/{teacher_id}"
+    if current < start_date:
+        current += timedelta(weeks=1)
 
     progress_bar = st.progress(0)
     week_count = 0
     total_weeks = ((end_date - start_date).days // 7) + 2
+    base_url = f"https://ruz.spbstu.ru/teachers/{teacher_id}"
 
     while current <= end_date:
         week_count += 1
@@ -136,6 +152,13 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
                     if not date_elem:
                         continue
                     date_text = date_elem.text.strip()
+
+                    try:
+                        lesson_date = datetime.strptime(date_text, "%d.%m.%Y")
+                        if lesson_date < start_date or lesson_date > end_date:
+                            continue
+                    except:
+                        pass
 
                     for lesson in day.find_all('li', class_='lesson'):
                         subject = ""

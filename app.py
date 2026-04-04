@@ -225,28 +225,45 @@ def build_empty_matrix(time_slots: list[datetime], commission_names: list[str]) 
 
 
 def auto_mark_conflicts(matrix: pd.DataFrame, commission_members: dict) -> pd.DataFrame:
-    """Любой непустой текст = занято + автоматические конфликты"""
+    """Сохраняет введённый пользователем текст + добавляет конфликтную подсветку только где нужно"""
     if matrix is None:
         return pd.DataFrame()
     
     df = matrix.copy().astype(str).fillna("")
     
-    # Любой текст, который не пустая строка — считаем занято
-    for col in df.columns:
-        df[col] = df[col].str.strip()
-        df[col] = df[col].where(df[col] == "", "🟥 Занято")
+    # 1. Сохраняем оригинальный текст пользователя (если он что-то написал)
+    # 2. Определяем, где есть занятость (любая непустая ячейка)
+    occupied = df != ""
     
-    # Применяем конфликты по пересекающимся участникам
+    # Добавляем конфликтную метку только для визуализации конфликтов
     comms = list(df.columns)
     for i in range(len(comms)):
         for j in range(i + 1, len(comms)):
             c1, c2 = comms[i], comms[j]
+            
+            # Если есть общие участники
             if set(commission_members.get(c1, [])) & set(commission_members.get(c2, [])):
-                busy_mask = (df[c1] == "🟥 Занято") | (df[c2] == "🟥 Занято")
-                df.loc[busy_mask, c1] = "🟥 Занято"
-                df.loc[busy_mask, c2] = "🟥 Занято"
+                # Если в одной из комиссий в этом слоте есть занятость
+                conflict_mask = occupied[c1] | occupied[c2]
+                if conflict_mask.any():
+                    # Ставим красную метку в обе комиссии, но сохраняем оригинальный текст где он был
+                    df.loc[conflict_mask & occupied[c1], c1] = "🟥 " + df.loc[conflict_mask & occupied[c1], c1]
+                    df.loc[conflict_mask & occupied[c2], c2] = "🟥 " + df.loc[conflict_mask & occupied[c2], c2]
     
     return df
+
+def format_header(members: list[str]) -> str:
+    short = []
+    for m in members:
+        parts = m.split()
+        if len(parts) >= 3:
+            short.append(f"{parts[0]} {parts[1][0]}.{parts[2][0]}.")
+        elif len(parts) >= 2:
+            short.append(f"{parts[0]} {parts[1][0]}.")
+        else:
+            short.append(m)
+    return ", ".join(short)
+    
 # ========================= ИНТЕРФЕЙС =========================
 tab1, tab3, tab2, tab4 = st.tabs([
     "📥 Вывод расписания",
@@ -349,38 +366,25 @@ with tab2:
 # ========================= ТАБ 4: ПЛАНИРОВАНИЕ КОМИССИЙ =========================
 with tab4:
     st.subheader("⚖️ Планирование комиссий")
-    st.caption("Пишите в ячейки любое обозначение занятости (Занято, Да, Встреча и т.д.). При сохранении конфликты по участникам применяются автоматически.")
+    st.caption("Пишите в ячейки **любое обозначение** (например: «Петров, Кузнецова», «Заседание», «Совещание 14:00» и т.д.). "
+               "При сохранении автоматически подсвечиваются конфликты по общим участникам.")
 
     colA, colB = st.columns(2)
     with colA:
         matrix_start = st.date_input("Начало периода", datetime(2026, 4, 1).date(), key="m_start")
     with colB:
-        matrix_end = st.date_input("Конец периода", datetime(2026, 4, 3).date(), key="m_end")   # можно менять
+        matrix_end = st.date_input("Конец периода", datetime(2026, 4, 5).date(), key="m_end")
 
-    # Инициализация / перестройка матрицы
-    if "commission_matrix" not in st.session_state or st.button("🔄 Перестроить матрицу под выбранный период (очистить)"):
+    if "commission_matrix" not in st.session_state or st.button("🔄 Перестроить матрицу под выбранный период"):
         time_slots = generate_time_slots(matrix_start, matrix_end)
         st.session_state.commission_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
-        if "commission_matrix" in st.session_state:  # чтобы не срабатывало при первой загрузке дважды
-            st.rerun()
-
-    # Формируем красивые заголовки: только Фамилия И.О.
-    def format_header(members: list[str]) -> str:
-        short = []
-        for m in members:
-            parts = m.split()
-            if len(parts) >= 2:
-                short.append(f"{parts[0]} {parts[1][0]}.{parts[2][0]}." if len(parts) >= 3 else f"{parts[0]} {parts[1][0]}.")
-            else:
-                short.append(m)
-        return ", ".join(short)
+        st.rerun()
 
     column_config = {
         comm: st.column_config.TextColumn(
-            format_header(COMMISSION_MEMBERS[comm]),
+            format_header(COMMISSION_MEMBERS[comm]),   # используем функцию из предыдущего сообщения
             default="",
-            max_chars=30,
-            help="Любой текст = занято"
+            max_chars=50,
         )
         for comm in COMMISSION_MEMBERS.keys()
     }
@@ -398,9 +402,9 @@ with tab4:
         final_matrix = auto_mark_conflicts(edited_df, COMMISSION_MEMBERS)
         st.session_state.commission_matrix = final_matrix.copy()
         
-        busy_count = (final_matrix == "🟥 Занято").sum().sum()
-        if busy_count > 0:
-            st.success(f"✅ Сохранено. Занятых слотов: {busy_count}")
+        conflict_count = final_matrix.applymap(lambda x: "🟥" in str(x)).sum().sum()
+        if conflict_count > 0:
+            st.success(f"✅ Сохранено. Обнаружено конфликтов: {conflict_count}")
         else:
             st.info("✅ Сохранено.")
         

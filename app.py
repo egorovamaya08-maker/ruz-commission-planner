@@ -193,25 +193,19 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
 
 # ========================= КАЛЕНДАРЬ-МАТРИЦА =========================
 def display_calendar_matrix(combined_df, start_date, end_date):
-    """Отображает календарь-матрицу занятости"""
+    """Простая и стабильная версия календаря-матрицы"""
     if combined_df.empty:
         st.info("Нет данных для отображения календаря.")
         return
 
-    # Исправление типов дат
-    if isinstance(start_date, (datetime.date, datetime.datetime)):
-        if not isinstance(start_date, datetime.datetime):
-            start_date = datetime.combine(start_date, datetime.min.time())
-    else:
-        start_date = datetime(2026, 2, 1)  # fallback
+    # Преобразуем даты в строку для надёжности
+    start_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, 'strftime') else str(start_date)
+    end_str = end_date.strftime("%Y-%m-%d") if hasattr(end_date, 'strftime') else str(end_date)
 
-    if isinstance(end_date, (datetime.date, datetime.datetime)):
-        if not isinstance(end_date, datetime.datetime):
-            end_date = datetime.combine(end_date, datetime.min.time())
-    else:
-        end_date = datetime(2026, 2, 28)  # fallback
+    # Генерируем даты
+    date_range = pd.date_range(start_str, end_str)
 
-    # Генерируем слоты по часу с 9:00 до 21:30
+    # Генерируем часовые слоты с 9:00 до 21:30
     slots = []
     current = datetime.strptime("09:00", "%H:%M")
     while current <= datetime.strptime("21:30", "%H:%M"):
@@ -220,13 +214,11 @@ def display_calendar_matrix(combined_df, start_date, end_date):
         slot_end = current.strftime("%H:%M")
         slots.append((f"{slot_start}–{slot_end}", slot_start, slot_end))
 
-    date_range = pd.date_range(start_date.date(), end_date.date())
-
     st.subheader("📅 Календарь занятости (все выбранные группы и преподаватели)")
 
     html = "<table style='width:100%; border-collapse: collapse; font-size: 13px; text-align:center;'>"
-    html += "<tr><th style='border:1px solid #ddd; padding:8px;'>Время</th>" 
-    html += "".join(f"<th style='border:1px solid #ddd; padding:8px;'>{d.strftime('%d.%m (%a)')}</th>" for d in date_range) + "</tr>"
+    html += "<tr><th style='border:1px solid #ddd; padding:8px; background:#f1f1f1;'>Время</th>" 
+    html += "".join(f"<th style='border:1px solid #ddd; padding:8px; background:#f1f1f1;'>{d.strftime('%d.%m (%a)')}</th>" for d in date_range) + "</tr>"
 
     for slot_name, slot_start_str, slot_end_str in slots:
         html += "<tr>"

@@ -225,32 +225,47 @@ def build_empty_matrix(time_slots: list[datetime], commission_names: list[str]) 
 
 
 def auto_mark_conflicts(matrix: pd.DataFrame, commission_members: dict) -> pd.DataFrame:
-    """Сохраняет введённый пользователем текст + добавляет конфликтную подсветку только где нужно"""
-    if matrix is None:
+    """
+    Автоматически проставляет занятость во все комиссии, 
+    у которых есть общие участники с уже занятыми комиссиями
+    """
+    if matrix is None or matrix.empty:
         return pd.DataFrame()
     
-    df = matrix.copy().astype(str).fillna("")
+    # Создаем копию для работы
+    result_df = matrix.copy().astype(str).fillna("")
     
-    # 1. Сохраняем оригинальный текст пользователя (если он что-то написал)
-    # 2. Определяем, где есть занятость (любая непустая ячейка)
-    occupied = df != ""
+    # Получаем все комиссии
+    comms = list(result_df.columns)
     
-    # Добавляем конфликтную метку только для визуализации конфликтов
-    comms = list(df.columns)
-    for i in range(len(comms)):
-        for j in range(i + 1, len(comms)):
-            c1, c2 = comms[i], comms[j]
+    # Для каждого временного слота (строки)
+    for idx in result_df.index:
+        # Собираем всех участников, которые уже заняты в этом слоте
+        busy_members = set()
+        
+        # Сначала проходим по всем комиссиям и собираем занятых участников
+        for comm in comms:
+            cell_value = result_df.loc[idx, comm]
+            if cell_value and cell_value != "nan" and "🟢" not in cell_value:
+                # Если в ячейке есть текст (не пусто), значит комиссия занята
+                # Добавляем всех участников этой комиссии в список занятых
+                busy_members.update(commission_members.get(comm, []))
+        
+        # Теперь для всех комиссий, у которых есть пересечение с занятыми участниками
+        for comm in comms:
+            comm_members = set(commission_members.get(comm, []))
             
-            # Если есть общие участники
-            if set(commission_members.get(c1, [])) & set(commission_members.get(c2, [])):
-                # Если в одной из комиссий в этом слоте есть занятость
-                conflict_mask = occupied[c1] | occupied[c2]
-                if conflict_mask.any():
-                    # Ставим красную метку в обе комиссии, но сохраняем оригинальный текст где он был
-                    df.loc[conflict_mask & occupied[c1], c1] = "🟥 " + df.loc[conflict_mask & occupied[c1], c1]
-                    df.loc[conflict_mask & occupied[c2], c2] = "🟥 " + df.loc[conflict_mask & occupied[c2], c2]
+            # Если есть пересечение с занятыми участниками
+            if comm_members & busy_members:
+                current_value = result_df.loc[idx, comm]
+                # Если ячейка пустая - ставим отметку о занятости
+                if pd.isna(current_value) or current_value == "" or current_value == "nan":
+                    result_df.loc[idx, comm] = "🟢 Занято"
+                # Если уже есть текст - просто добавляем индикатор
+                elif "🟢" not in current_value and "🔴" not in current_value:
+                    result_df.loc[idx, comm] = f"🟢 {current_value}"
     
-    return df
+    return result_df
 
 def format_header(members: list[str]) -> str:
     short = []

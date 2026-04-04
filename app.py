@@ -4,11 +4,10 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime, timedelta
 import time
-import re
 
 st.set_page_config(page_title="RUZ Planner", layout="wide")
 st.title("📅 RUZ Planner")
-st.markdown("**Поиск свободных окон и планирование комиссий • СПбГТУ**")
+st.markdown("**Поиск свободных окон и планирование • СПбГТУ**")
 
 # ========================= СЛОВАРИ =========================
 GROUP_MAP = {
@@ -23,18 +22,6 @@ TEACHER_MAP = {
     "Благова Ирина Юрьевна": "23640",
 }
 
-# ========================= ПАРСЕР МЕСТА =========================
-def parse_place(place_element):
-    if not place_element:
-        return ""
-    link = place_element.find('a', class_='lesson__link')
-    if not link:
-        return ""
-    text = link.get_text(strip=True)
-    text = re.sub(r'(\d)(ауд\.)', r'\1 \2', text)
-    parts = [p.strip() for p in text.split(',') if p.strip()]
-    return ', '.join(dict.fromkeys(parts))
-
 # ========================= ПАРСЕР ГРУППЫ =========================
 def parse_group_schedule(group_human: str, start_date: datetime, end_date: datetime):
     if group_human not in GROUP_MAP:
@@ -43,12 +30,19 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
 
     group_id = GROUP_MAP[group_human]
     all_lessons = []
+
     current = start_date - timedelta(days=start_date.weekday())
     progress_bar = st.progress(0)
     week_count = 0
     total_weeks = ((end_date - start_date).days // 7) + 2
 
+    stop_button = st.button("⛔ Остановить парсинг", key="stop_group")
+
     while current <= end_date:
+        if stop_button:
+            st.warning("Парсинг остановлен пользователем.")
+            break
+
         week_count += 1
         url = f"https://ruz.spbstu.ru/faculty/100/groups/{group_id}?date={current.strftime('%Y-%m-%d')}"
 
@@ -84,8 +78,12 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
                         time_str = lesson.find('span', class_='lesson__time')
                         time_str = time_str.text.strip() if time_str else ""
 
+                        place = ""
                         place_elem = lesson.find('div', class_='lesson__places')
-                        place = parse_place(place_elem)
+                        if place_elem:
+                            link = place_elem.find('a', class_='lesson__link')
+                            if link:
+                                place = link.get_text(strip=True)
 
                         if subject and teachers:
                             all_lessons.append({
@@ -97,6 +95,77 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
                                 "Место": place,
                                 "Группа": group_human,
                                 "Формат": "СДО" if "СДО" in place else "Очно"
+                            })
+
+            progress_bar.progress(min(week_count / total_weeks, 1.0))
+            time.sleep(12)
+
+        except Exception as e:
+            st.warning(f"Ошибка на неделе {current}: {e}")
+
+        current += timedelta(weeks=1)
+
+    return pd.DataFrame(all_lessons)
+
+# ========================= ПАРСЕР ПРЕПОДАВАТЕЛЯ (твой оригинальный код) =========================
+def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: datetime):
+    if teacher_name not in TEACHER_MAP:
+        st.error(f"Преподаватель {teacher_name} не найден.")
+        return pd.DataFrame()
+
+    teacher_id = TEACHER_MAP[teacher_name]
+    all_lessons = []
+
+    current = start_date - timedelta(days=start_date.weekday())
+    progress_bar = st.progress(0)
+    week_count = 0
+    total_weeks = ((end_date - start_date).days // 7) + 2
+
+    base_url = f"https://ruz.spbstu.ru/teachers/{teacher_id}"
+
+    while current <= end_date:
+        week_count += 1
+        url = f"{base_url}?date={current.strftime('%Y-%m-%d')}"
+
+        try:
+            response = requests.get(url, headers={'User-Agent': 'Mozilla/5.0'}, timeout=15)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, 'html.parser')
+                for day in soup.find_all('li', class_='schedule__day'):
+                    date_elem = day.find('div', class_='schedule__date')
+                    if not date_elem:
+                        continue
+                    date_text = date_elem.text.strip()
+
+                    for lesson in day.find_all('li', class_='lesson'):
+                        subject = ""
+                        subject_elem = lesson.find('div', class_='lesson__subject')
+                        if subject_elem:
+                            spans = subject_elem.find_all('span')
+                            if spans and len(spans) > 2:
+                                subject = spans[-1].text.strip()
+
+                        lesson_type = lesson.find('div', class_='lesson__type')
+                        lesson_type = lesson_type.text.strip() if lesson_type else ""
+
+                        time_str = lesson.find('span', class_='lesson__time')
+                        time_str = time_str.text.strip() if time_str else ""
+
+                        groups = []
+                        groups_elem = lesson.find('div', class_='lesson-groups__list')
+                        if groups_elem:
+                            for link in groups_elem.find_all('a', class_='lesson__link'):
+                                groups.append(link.text.strip())
+
+                        if subject:
+                            all_lessons.append({
+                                "Дата": date_text,
+                                "Время": time_str,
+                                "Дисциплина": subject,
+                                "Тип занятия": lesson_type,
+                                "Группы": ', '.join(groups),
+                                "Преподаватель": teacher_name,
+                                "Формат": "СДО"
                             })
 
             progress_bar.progress(min(week_count / total_weeks, 1.0))
@@ -130,41 +199,47 @@ with tab1:
                 df = parse_group_schedule(group_human, start_date, end_date)
                 if not df.empty:
                     st.session_state.schedule_df = df
-                    st.success(f"Загружено {len(df)} занятий")
-                    # Разделение по дням
+                    st.success(f"✅ Загружено {len(df)} занятий для группы {group_human}")
                     for date in sorted(df['Дата'].unique()):
                         st.subheader(f"📅 {date}")
-                        day_df = df[df['Дата'] == date]
-                        st.dataframe(day_df[['Дата', 'Время', 'Дисциплина', 'Тип занятия', 'Преподаватель', 'Место', 'Формат']])
+                        st.dataframe(df[df['Дата'] == date])
     else:
-        st.info("Парсинг по преподавателю будет добавлен в следующей версии")
+        teacher_name = st.selectbox("Выберите преподавателя", list(TEACHER_MAP.keys()))
+        if st.button("🚀 Запустить парсинг преподавателя", type="primary"):
+            with st.spinner("Парсинг преподавателя..."):
+                df = parse_teacher_schedule(teacher_name, start_date, end_date)
+                if not df.empty:
+                    st.session_state.schedule_df = df
+                    st.success(f"✅ Загружено {len(df)} занятий для преподавателя {teacher_name}")
+                    for date in sorted(df['Дата'].unique()):
+                        st.subheader(f"📅 {date}")
+                        st.dataframe(df[df['Дата'] == date])
 
 with tab2:
-    st.subheader("🔍 Поиск свободных окон и планирование комиссий")
+    st.subheader("🔍 Поиск свободных окон")
 
     if "schedule_df" in st.session_state and not st.session_state.schedule_df.empty:
         df = st.session_state.schedule_df
 
         st.write("**Выберите группы и преподавателей для поиска общего свободного времени:**")
-
         selected_groups = st.multiselect("Группы", options=list(GROUP_MAP.keys()), default=list(GROUP_MAP.keys())[:1])
         selected_teachers = st.multiselect("Преподаватели", options=list(TEACHER_MAP.keys()), default=list(TEACHER_MAP.keys())[:1])
 
         col1, col2, col3 = st.columns(3)
         with col1:
-            days = st.multiselect("Дни недели", ["Пн", "Вт", "Ср", "Чт", "Пт"], default=["Пн", "Ср", "Пт"])
-        with col2:
             min_duration = st.slider("Мин. длительность окна (мин)", 30, 180, 80)
-        with col3:
             break_min = st.slider("Мин. перерыв после занятия (мин)", 0, 60, 20)
-
-        start_time = st.time_input("Начало интервала", datetime.strptime("09:00", "%H:%M").time())
-        end_time = st.time_input("Конец интервала", datetime.strptime("18:00", "%H:%M").time())
+        with col2:
+            start_time = st.time_input("Начало интервала", datetime.strptime("09:00", "%H:%M").time())
+            end_time = st.time_input("Конец интервала", datetime.strptime("18:00", "%H:%M").time())
+        with col3:
+            days_of_week = st.multiselect("Дни недели", ["Пн", "Вт", "Ср", "Чт", "Пт"], default=["Пн", "Ср", "Пт"])
 
         if st.button("🔎 Найти свободные окна", type="primary"):
-            st.info("Поиск свободных окон по выбранным группам и преподавателям...")
-            st.dataframe(df.head(10))  # пока заглушка
-            st.success("Найдено X свободных окон (функция в разработке)")
+            st.info("Выполняю поиск свободных окон по выбранным группам и преподавателям...")
+            # Реальная логика будет здесь в следующей итерации
+            st.success("Поиск выполнен. Показано 0 слотов (логика поиска в разработке)")
+            st.dataframe(df.head(10))
     else:
         st.warning("Сначала загрузите расписание на вкладке 'Обновление расписания'")
 
@@ -172,10 +247,8 @@ with tab3:
     st.subheader("📊 Статистика")
     if "schedule_df" in st.session_state and not st.session_state.schedule_df.empty:
         df = st.session_state.schedule_df
-        period = f"{df['Дата'].min()} — {df['Дата'].max()}"
-
-        st.metric("Период", period)
         st.metric("Всего занятий", len(df))
+        st.metric("Период", f"{df['Дата'].min()} — {df['Дата'].max()}")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -184,10 +257,7 @@ with tab3:
         with col2:
             st.write("**По преподавателям:**")
             st.dataframe(df['Преподаватель'].value_counts())
-        
-        st.write("**По группам:**")
-        st.dataframe(df['Группа'].value_counts())
     else:
         st.info("Загрузите расписание для просмотра статистики")
 
-st.caption("Версия 0.9 • Парсинг группы + статистика • Поиск окошек в разработке")
+st.caption("Версия 1.3 • Парсинг по группе и преподавателю • Результаты сохраняются")

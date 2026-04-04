@@ -48,13 +48,12 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
 
     progress_bar = st.progress(0)
     status_text = st.empty()
-
     week_count = 0
     total_weeks = ((end_date - start_date).days // 7) + 2
 
     while current <= end_date:
         week_count += 1
-        status_text.text(f"Парсинг группы {group_human} — неделя {week_count}/{total_weeks}")
+        status_text.text(f"Парсинг группы {group_human} — {week_count}/{total_weeks} недель")
         url = f"https://ruz.spbstu.ru/faculty/100/groups/{group_id}?date={current.strftime('%Y-%m-%d')}"
 
         try:
@@ -130,7 +129,7 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
 
     while current <= end_date:
         week_count += 1
-        status_text.text(f"Парсинг преподавателя {teacher_name} — неделя {week_count}/{total_weeks}")
+        status_text.text(f"Парсинг преподавателя {teacher_name} — {week_count}/{total_weeks} недель")
         url = f"{base_url}?date={current.strftime('%Y-%m-%d')}"
 
         try:
@@ -191,81 +190,6 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
     status_text.empty()
     return pd.DataFrame(all_lessons)
 
-# ========================= КАЛЕНДАРЬ-МАТРИЦА =========================
-def display_calendar_matrix(combined_df, start_date, end_date):
-    """Простая и стабильная версия календаря-матрицы"""
-    if combined_df.empty:
-        st.info("Нет данных для отображения календаря.")
-        return
-
-    # Преобразуем даты в строку для надёжности
-    start_str = start_date.strftime("%Y-%m-%d") if hasattr(start_date, 'strftime') else str(start_date)
-    end_str = end_date.strftime("%Y-%m-%d") if hasattr(end_date, 'strftime') else str(end_date)
-
-    # Генерируем даты
-    date_range = pd.date_range(start_str, end_str)
-
-    # Генерируем часовые слоты с 9:00 до 21:30
-    slots = []
-    current = datetime.strptime("09:00", "%H:%M")
-    while current <= datetime.strptime("21:30", "%H:%M"):
-        slot_start = current.strftime("%H:%M")
-        current += timedelta(hours=1)
-        slot_end = current.strftime("%H:%M")
-        slots.append((f"{slot_start}–{slot_end}", slot_start, slot_end))
-
-    st.subheader("📅 Календарь занятости (все выбранные группы и преподаватели)")
-
-    html = "<table style='width:100%; border-collapse: collapse; font-size: 13px; text-align:center;'>"
-    html += "<tr><th style='border:1px solid #ddd; padding:8px; background:#f1f1f1;'>Время</th>" 
-    html += "".join(f"<th style='border:1px solid #ddd; padding:8px; background:#f1f1f1;'>{d.strftime('%d.%m (%a)')}</th>" for d in date_range) + "</tr>"
-
-    for slot_name, slot_start_str, slot_end_str in slots:
-        html += "<tr>"
-        html += f"<td style='border:1px solid #ddd; padding:8px; background:#f8f9fa; font-weight:bold;'>{slot_name}</td>"
-
-        for date in date_range:
-            date_str = date.strftime("%d.%m.%Y")
-            day_df = combined_df[combined_df['Дата'] == date_str]
-
-            occupied = False
-            events = []
-
-            for _, row in day_df.iterrows():
-                if '–' not in str(row.get('Время', '')):
-                    continue
-                try:
-                    start_str, end_str = str(row['Время']).split('–')
-                    start = datetime.strptime(start_str.strip(), "%H:%M")
-                    end = datetime.strptime(end_str.strip(), "%H:%M")
-                    slot_start_dt = datetime.strptime(slot_start_str, "%H:%M")
-                    slot_end_dt = datetime.strptime(slot_end_str, "%H:%M")
-
-                    if not (end <= slot_start_dt or start >= slot_end_dt):
-                        occupied = True
-                        info = f"{row.get('Дисциплина', '—')} ({row.get('Тип занятия', '')})"
-                        if 'Преподаватель' in row and row['Преподаватель']:
-                            info += f" — {row['Преподаватель']}"
-                        elif 'Группа' in row:
-                            info += f" [гр. {row['Группа']}]"
-                        events.append(info)
-                except:
-                    continue
-
-            if occupied:
-                html += f"<td style='border:1px solid #ddd; padding:6px; background:#ffebee; vertical-align:top;'>"
-                html += "<small>" + "<br>".join(events[:2]) + "</small>"
-                if len(events) > 2:
-                    html += f"<br><small>+{len(events)-2}</small>"
-                html += "</td>"
-            else:
-                html += f"<td style='border:1px solid #ddd; padding:8px; background:#e8f5e9; color:#2e7d32; font-weight:bold;'>✅ Свободно</td>"
-
-        html += "</tr>"
-
-    html += "</table>"
-    st.markdown(html, unsafe_allow_html=True)
-    st.caption("✅ Зелёный = свободно для всех выбранных | 🔴 Красный = занято хотя бы у одного")
 # ========================= ИНТЕРФЕЙС =========================
 tab1, tab3, tab2 = st.tabs(["📥 Вывод расписания", "📊 Статистика", "🔍 Поиск свободных окон"])
 
@@ -327,21 +251,21 @@ with tab2:
     selected_groups = st.multiselect("Группы", options=list(GROUP_MAP.keys()))
     selected_teachers = st.multiselect("Преподаватели", options=list(TEACHER_MAP.keys()))
 
-    duration_options = {"30 минут": 30, "1 час": 60, "1.5 часа": 90, "2 часа": 120}
-    min_duration_label = st.selectbox("Мин. длительность окна", list(duration_options.keys()))
-    min_duration = duration_options[min_duration_label]
-
     col1, col2 = st.columns(2)
     with col1:
         search_start = st.date_input("Начало периода", datetime(2026, 2, 1), key="search_start")
     with col2:
         search_end = st.date_input("Конец периода", datetime(2026, 2, 28), key="search_end")
 
-    if st.button("🔎 Построить календарь занятости и найти окна", type="primary"):
+    duration_options = {"30 минут": 30, "1 час": 60, "1.5 часа": 90, "2 часа": 120}
+    min_duration_label = st.selectbox("Мин. длительность окна", list(duration_options.keys()))
+    min_duration = duration_options[min_duration_label]
+
+    if st.button("🔎 Построить общее расписание", type="primary"):
         if not selected_groups and not selected_teachers:
             st.warning("Выберите хотя бы одну группу или преподавателя")
         else:
-            with st.spinner("Загрузка расписаний и построение матрицы..."):
+            with st.spinner("Загрузка расписаний..."):
                 schedule_dfs = []
                 if selected_groups:
                     for g in selected_groups:
@@ -356,8 +280,12 @@ with tab2:
 
                 if schedule_dfs:
                     combined = pd.concat(schedule_dfs, ignore_index=True)
-                    display_calendar_matrix(combined, search_start, search_end)
+                    st.success(f"Загружено расписание для {len(selected_groups)} групп и {len(selected_teachers)} преподавателей")
+                    st.subheader("Общее расписание")
+                    for date in sorted(combined['Дата'].unique()):
+                        st.subheader(f"📅 {date}")
+                        st.dataframe(combined[combined['Дата'] == date])
                 else:
                     st.warning("Не удалось загрузить данные")
 
-st.caption("Версия 4.0 • Полная визуализация календаря • Автономные вкладки")
+st.caption("Версия 4.1 • Автономные вкладки • Простая визуализация")

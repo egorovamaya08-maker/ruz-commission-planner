@@ -47,13 +47,11 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
     current = start_date - timedelta(days=start_date.weekday())
 
     progress_bar = st.progress(0)
-    status_text = st.empty()
     week_count = 0
     total_weeks = ((end_date - start_date).days // 7) + 2
 
     while current <= end_date:
         week_count += 1
-        status_text.text(f"Парсинг группы {group_human} — {week_count}/{total_weeks} недель")
         url = f"https://ruz.spbstu.ru/faculty/100/groups/{group_id}?date={current.strftime('%Y-%m-%d')}"
 
         try:
@@ -108,9 +106,8 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
 
         current += timedelta(weeks=1)
 
-    status_text.empty()
     return pd.DataFrame(all_lessons)
-
+    
 # ========================= ПАРСЕР ПРЕПОДАВАТЕЛЯ =========================
 def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: datetime):
     if teacher_name not in TEACHER_MAP:
@@ -123,13 +120,11 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
     base_url = f"https://ruz.spbstu.ru/teachers/{teacher_id}"
 
     progress_bar = st.progress(0)
-    status_text = st.empty()
     week_count = 0
     total_weeks = ((end_date - start_date).days // 7) + 2
 
     while current <= end_date:
         week_count += 1
-        status_text.text(f"Парсинг преподавателя {teacher_name} — {week_count}/{total_weeks} недель")
         url = f"{base_url}?date={current.strftime('%Y-%m-%d')}"
 
         try:
@@ -187,9 +182,8 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
 
         current += timedelta(weeks=1)
 
-    status_text.empty()
     return pd.DataFrame(all_lessons)
-
+    
 # ========================= ИНТЕРФЕЙС =========================
 tab1, tab3, tab2 = st.tabs(["📥 Вывод расписания", "📊 Статистика", "🔍 Поиск свободных окон"])
 

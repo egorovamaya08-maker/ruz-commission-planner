@@ -218,7 +218,6 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
 from datetime import date
 
 def generate_time_slots(start: date | datetime, end: date | datetime, hours: range = range(8, 21)) -> list[datetime]:
-    """Генерирует почасовую сетку от start до end включительно."""
     if isinstance(start, date) and not isinstance(start, datetime):
         start = datetime.combine(start, datetime.min.time())
     if isinstance(end, date) and not isinstance(end, datetime):
@@ -234,7 +233,6 @@ def generate_time_slots(start: date | datetime, end: date | datetime, hours: ran
             slots.append(slot)
         current += timedelta(days=1)
     return slots
-
 
 def check_conflicts(
     commission_name: str,
@@ -406,59 +404,85 @@ with tab2:
 
 st.caption("Версия 4.2 • Очищенный код")
 
+def build_empty_matrix(time_slots: list[datetime], commissions: list[str]) -> pd.DataFrame:
+    """Пустая матрица: строки = слоты, столбцы = комиссии"""
+    slot_labels = [s.strftime("%d.%m %H:%M") for s in time_slots]
+    data = {slot: {comm: "" for comm in commissions} for slot in slot_labels}
+    return pd.DataFrame.from_dict(data, orient="index")
+
+
+def has_conflicts(matrix: pd.DataFrame, commission_members: dict) -> tuple[bool, list[str]]:
+    """Проверяет конфликты по участникам и занятым слотам"""
+    comms = list(matrix.columns)
+    conflicts = []
+    for i in range(len(comms)):
+        for j in range(i + 1, len(comms)):
+            c1, c2 = comms[i], comms[j]
+            if set(commission_members.get(c1, [])) & set(commission_members.get(c2, [])):
+                if (matrix[c1] == "🟥 Занято") & (matrix[c2] == "🟥 Занято").any():
+                    conflicts.append(f"{c1} ↔ {c2}")
+    return len(conflicts) > 0, conflicts
+
 with tab4:
-    st.subheader("⚖️ Планирование комиссий")
+    st.subheader("⚖️ Планирование комиссий — матрица расписания")
 
-    # ====================== СЛОВАРЬ КОМИССИЙ ======================
-    st.caption("Составы комиссий (редактируются в COMMISSION_MEMBERS)")
-    if st.checkbox("Показать составы комиссий", value=False):
-        st.json(COMMISSION_MEMBERS)
+    st.caption("Редактируй ячейки → «🟥 Занято». Длительность = количество подряд идущих ячеек.")
 
-    # ====================== НАЗНАЧЕНИЕ НОВОГО ЗАСЕДАНИЯ ======================
-    st.subheader("Назначить новое заседание")
+    # Выбор периода матрицы
+    colA, colB = st.columns(2)
+    with colA:
+        matrix_start = st.date_input("Начало периода", datetime(2026, 4, 1).date(), key="m_start")
+    with colB:
+        matrix_end = st.date_input("Конец периода", datetime(2026, 4, 10).date(), key="m_end")
 
-    col1, col2, col3, col4 = st.columns([2, 1.5, 1, 1])
-    with col1:
-        commission_name = st.selectbox("Комиссия", list(COMMISSION_MEMBERS.keys()), key="new_comm")
-    with col2:
-        comm_date = st.date_input("Дата", datetime(2026, 4, 6).date(), key="new_date")
-    with col3:
-        comm_hour = st.selectbox("Час начала", list(range(8, 21)), index=10, key="new_hour")  # 18:00 по умолчанию
-    with col4:
-        duration_hours = st.selectbox("Длительность (часов)", [1, 2, 3], key="new_duration")
+    # Инициализация матрицы
+    if "schedule_matrix" not in st.session_state:
+        time_slots = generate_time_slots(matrix_start, matrix_end)
+        st.session_state.schedule_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
 
-    start_time = datetime.combine(comm_date, datetime.min.time()).replace(hour=comm_hour)
+    # Если период изменился — предлагаем перестроить
+    if st.button("🔄 Перестроить матрицу под новый период (очистить)"):
+        time_slots = generate_time_slots(matrix_start, matrix_end)
+        st.session_state.schedule_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
+        st.rerun()
 
-    if st.button("✅ Назначить заседание", type="primary", use_container_width=True):
-        if "assigned_commissions" not in st.session_state:
-            st.session_state.assigned_commissions = []
+    # Редактируемая таблица
+    edited_matrix = st.data_editor(
+        st.session_state.schedule_matrix,
+        use_container_width=True,
+        num_rows="fixed",
+        key="schedule_editor",
+        column_config={
+            col: st.column_config.TextColumn(
+                col,
+                help="Оставь пустым или напиши «🟥 Занято»",
+                default="",
+                max_chars=20,
+            )
+            for col in st.session_state.schedule_matrix.columns
+        }
+    )
 
-        # Проверка конфликтов перед назначением
-        time_slots_for_check = generate_time_slots(comm_date, comm_date + timedelta(days=1))
-        result = check_conflicts(
-            commission_name=commission_name,
-            start_time=start_time,
-            duration_hours=duration_hours,
-            commissions=COMMISSION_MEMBERS,
-            time_slots=time_slots_for_check
-        )
+    # Кнопка сохранения + проверка
+    if st.button("💾 Сохранить изменения и проверить конфликты", type="primary", use_container_width=True):
+        has_conflict, conflict_list = has_conflicts(edited_matrix, COMMISSION_MEMBERS)
 
-        if result.get("conflicting_commissions"):
-            st.error(f"Конфликт! Занятые комиссии: {', '.join(result['conflicting_commissions'])}")
+        if has_conflict:
+            st.error("❌ Найдены конфликты участников:")
+            for c in conflict_list:
+                st.write(f"• {c}")
         else:
-            new_entry = {
-                "Комиссия": commission_name,
-                "Дата": comm_date.strftime("%d.%m.%Y"),
-                "Время": f"{comm_hour:02d}:00",
-                "Длительность": f"{duration_hours} ч",
-                "Участники": ", ".join(COMMISSION_MEMBERS[commission_name][:3]) + "..." if len(COMMISSION_MEMBERS[commission_name]) > 3 else ", ".join(COMMISSION_MEMBERS[commission_name]),
-                "start_datetime": start_time,
-                "duration_hours": duration_hours
-            }
-            st.session_state.assigned_commissions.append(new_entry)
-            st.success(f"Заседание **{commission_name}** успешно назначено на {comm_date.strftime('%d.%m')} {comm_hour:02d}:00 ({duration_hours} ч)")
+            st.session_state.schedule_matrix = edited_matrix.copy()
+            st.success("✅ Сохранено. Конфликтов нет.")
             st.rerun()
 
+    # Красивая визуализация (только для просмотра)
+    st.subheader("Визуализация матрицы")
+    styled = edited_matrix.style.map(
+        lambda x: "background-color: #ffcccc; color: #900000; font-weight: bold" if "🟥" in str(x) else ""
+    )
+    st.dataframe(styled, use_container_width=True)
+    
     # ====================== СПИСОК НАЗНАЧЕННЫХ ЗАСЕДАНИЙ ======================
     st.subheader("Назначенные заседания")
     if "assigned_commissions" in st.session_state and st.session_state.assigned_commissions:

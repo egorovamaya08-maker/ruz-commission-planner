@@ -284,7 +284,7 @@ tab1, tab3, tab2, tab4 = st.tabs([
     "📥 Вывод расписания",
     "📊 Статистика",
     "🔍 Поиск свободных окон",
-    "⚖️ Планирование комиссий"
+    "⚖️ Планирование ГИА"
 ])
 
 # ========================= ТАБ 1: ВЫВОД РАСПИСАНИЯ =========================
@@ -378,49 +378,80 @@ with tab2:
                 else:
                     st.warning("Не удалось загрузить данные")
 
-# ========================= ТАБ 4: ПЛАНИРОВАНИЕ КОМИССИЙ =========================
+# ========================= ТАБ 4: ПЛАНИРОВАНИЕ ГИА =========================
+# Полный код для вкладки 4 (финальная версия)
 with tab4:
-    st.subheader("⚖️ Планирование комиссий")
-    st.caption("Пишите в ячейки **любое обозначение** (например: «Петров, Кузнецова», «Заседание», «Совещание 14:00» и т.д.). "
-               "При сохранении автоматически подсвечиваются конфликты по общим участникам.")
-
+    st.subheader("⚖️ Планирование ГИА")
+    
+    # Загрузка сохраненных данных при старте
+    if "commission_data" not in st.session_state:
+        st.session_state.commission_data = None
+    
     colA, colB = st.columns(2)
     with colA:
         matrix_start = st.date_input("Начало периода", datetime(2026, 4, 1).date(), key="m_start")
     with colB:
         matrix_end = st.date_input("Конец периода", datetime(2026, 4, 5).date(), key="m_end")
-
-    if "commission_matrix" not in st.session_state or st.button("🔄 Перестроить матрицу под выбранный период"):
+    
+    # Кнопка перестроения
+    if st.button("🔄 Перестроить матрицу") or st.session_state.commission_data is None:
         time_slots = generate_time_slots(matrix_start, matrix_end)
-        st.session_state.commission_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
+        st.session_state.commission_data = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
+        st.session_state.commission_matrix = auto_mark_conflicts(st.session_state.commission_data, COMMISSION_MEMBERS)
         st.rerun()
-
+    
+    # Редактор
     column_config = {
         comm: st.column_config.TextColumn(
-            format_header(COMMISSION_MEMBERS[comm]),   # используем функцию из предыдущего сообщения
+            format_header(COMMISSION_MEMBERS[comm]),
             default="",
             max_chars=50,
         )
         for comm in COMMISSION_MEMBERS.keys()
     }
-
+    
     edited_df = st.data_editor(
-        st.session_state.commission_matrix,
+        st.session_state.commission_matrix if st.session_state.commission_matrix is not None else pd.DataFrame(),
         use_container_width=True,
         num_rows="fixed",
         key="commission_editor_final",
         column_config=column_config,
         hide_index=False,
     )
-
-    if st.button("💾 Сохранить", type="primary", use_container_width=True):
-        final_matrix = auto_mark_conflicts(edited_df, COMMISSION_MEMBERS)
-        st.session_state.commission_matrix = final_matrix.copy()
-        
-        conflict_count = final_matrix.map(lambda x: "🟥" in str(x)).sum().sum()
-        if conflict_count > 0:
-            st.success(f"✅ Сохранено. Обнаружено конфликтов: {conflict_count}")
-        else:
-            st.info("✅ Сохранено.")
-        
-        st.rerun()
+    
+    col_save, col_export, col_import = st.columns(3)
+    
+    with col_save:
+        if st.button("💾 Сохранить", type="primary", use_container_width=True):
+            # Очищаем от меток
+            clean_data = edited_df.copy()
+            for col in clean_data.columns:
+                clean_data[col] = clean_data[col].apply(
+                    lambda x: re.sub(r'^[🟢🔴]\s*', '', str(x)) if pd.notna(x) else x
+                )
+            
+            st.session_state.commission_data = clean_data
+            st.session_state.commission_matrix = auto_mark_conflicts(clean_data, COMMISSION_MEMBERS)
+            st.success("✅ Сохранено")
+            st.rerun()
+    
+    with col_export:
+        if st.session_state.commission_data is not None:
+            csv = st.session_state.commission_data.to_csv()
+            st.download_button(
+                label="📥 Скачать CSV",
+                data=csv,
+                file_name=f"commissions_{matrix_start}_{matrix_end}.csv",
+                mime="text/csv",
+                use_container_width=True
+            )
+    
+    with col_import:
+        uploaded = st.file_uploader("📂 Загрузить", type=['csv'], key="commission_upload")
+        if uploaded is not None:
+            df = pd.read_csv(uploaded, index_col=0)
+            if set(df.columns) == set(COMMISSION_MEMBERS.keys()):
+                st.session_state.commission_data = df
+                st.session_state.comission_matrix = auto_mark_conflicts(df, COMMISSION_MEMBERS)
+                st.success("✅ Загружено!")
+                st.rerun()

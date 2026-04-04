@@ -68,13 +68,13 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
                         continue
                     date_text = date_elem.text.strip()
 
-                    # Фильтруем занятия строго внутри выбранного периода
+                    # === ЖЁСТКАЯ ФИЛЬТРАЦИЯ ===
                     try:
-                        lesson_date = datetime.strptime(date_text, "%d.%m.%Y")
-                        if lesson_date < start_date or lesson_date > end_date:
+                        lesson_date = datetime.strptime(date_text, "%d.%m.%Y").date()
+                        if lesson_date < start_date.date() or lesson_date > end_date.date():
                             continue
                     except:
-                        pass
+                        continue
 
                     for lesson in day.find_all('li', class_='lesson'):
                         subject = ""
@@ -119,7 +119,8 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
         current += timedelta(weeks=1)
 
     return pd.DataFrame(all_lessons)
-    
+
+
 # ========================= ПАРСЕР ПРЕПОДАВАТЕЛЯ =========================
 def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: datetime):
     if teacher_name not in TEACHER_MAP:
@@ -129,7 +130,6 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
     teacher_id = TEACHER_MAP[teacher_name]
     all_lessons = []
 
-    # Находим первый понедельник ≥ start_date
     current = start_date - timedelta(days=start_date.weekday())
     if current < start_date:
         current += timedelta(weeks=1)
@@ -153,12 +153,13 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
                         continue
                     date_text = date_elem.text.strip()
 
+                    # === ЖЁСТКАЯ ФИЛЬТРАЦИЯ ===
                     try:
-                        lesson_date = datetime.strptime(date_text, "%d.%m.%Y")
-                        if lesson_date < start_date or lesson_date > end_date:
+                        lesson_date = datetime.strptime(date_text, "%d.%m.%Y").date()
+                        if lesson_date < start_date.date() or lesson_date > end_date.date():
                             continue
                     except:
-                        pass
+                        continue
 
                     for lesson in day.find_all('li', class_='lesson'):
                         subject = ""
@@ -205,8 +206,7 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
 
         current += timedelta(weeks=1)
 
-    return pd.DataFrame(all_lessons)
-    
+    return pd.DataFrame(all_lessons)    
 # ========================= ИНТЕРФЕЙС =========================
 tab1, tab3, tab2 = st.tabs(["📥 Вывод расписания", "📊 Статистика", "🔍 Поиск свободных окон"])
 

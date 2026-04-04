@@ -45,7 +45,6 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
     group_id = GROUP_MAP[group_human]
     all_lessons = []
 
-    # Находим первый понедельник ≥ start_date
     current = start_date - timedelta(days=start_date.weekday())
     if current < start_date:
         current += timedelta(weeks=1)
@@ -68,12 +67,13 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
                         continue
                     date_text = date_elem.text.strip()
 
-                    # === ЖЁСТКАЯ ФИЛЬТРАЦИЯ ===
+                    # Упрощённая, но надёжная фильтрация
                     try:
                         lesson_date = datetime.strptime(date_text, "%d.%m.%Y").date()
                         if lesson_date < start_date.date() or lesson_date > end_date.date():
                             continue
                     except:
+                        # Если не удалось распарсить дату — пропускаем
                         continue
 
                     for lesson in day.find_all('li', class_='lesson'):
@@ -120,7 +120,6 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
 
     return pd.DataFrame(all_lessons)
 
-
 # ========================= ПАРСЕР ПРЕПОДАВАТЕЛЯ =========================
 def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: datetime):
     if teacher_name not in TEACHER_MAP:
@@ -153,7 +152,6 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
                         continue
                     date_text = date_elem.text.strip()
 
-                    # === ЖЁСТКАЯ ФИЛЬТРАЦИЯ ===
                     try:
                         lesson_date = datetime.strptime(date_text, "%d.%m.%Y").date()
                         if lesson_date < start_date.date() or lesson_date > end_date.date():
@@ -206,7 +204,7 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
 
         current += timedelta(weeks=1)
 
-    return pd.DataFrame(all_lessons)    
+    return pd.DataFrame(all_lessons)
 # ========================= ИНТЕРФЕЙС =========================
 tab1, tab3, tab2 = st.tabs(["📥 Вывод расписания", "📊 Статистика", "🔍 Поиск свободных окон"])
 

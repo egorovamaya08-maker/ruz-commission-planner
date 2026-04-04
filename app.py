@@ -24,6 +24,13 @@ TEACHER_MAP = {
     "Степанова Ксения Сергеевна": "20342",
 }
 
+# ========================= КОМИССИИ =========================
+COMMISSION_MEMBERS: dict[str, list[str]] = {
+    "Комса1": ["Иванов Иван Иванович", "Петров Пётр Петрович"],
+    "Комса2": ["Иванов Иван Иванович", "Сидоров Сидор Сидорович"],
+    # Добавляй сюда новые комиссии и участников — всё остальное подхватится автоматически
+}
+
 # ========================= ПАРСЕР МЕСТА =========================
 def parse_place(place_element):
     if not place_element:
@@ -207,9 +214,97 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
 
     return pd.DataFrame(all_lessons)
 
+# ========================= ЛОГИКА КОМИССИЙ =========================
+def generate_time_slots(start_date: datetime, end_date: datetime, hours: range = range(8, 21)) -> list[datetime]:
+    """Генерирует сетку слотов (каждый час)."""
+    slots = []
+    current = datetime(start_date.year, start_date.month, start_date.day)
+    while current <= end_date:
+        for h in hours:
+            slots.append(current.replace(hour=h, minute=0, second=0, microsecond=0))
+        current += timedelta(days=1)
+    return slots
 
+
+def check_conflicts(
+    commission_name: str,
+    start_time: datetime,
+    duration_hours: int,
+    commissions: dict | None = None,
+    time_slots: list[datetime] | None = None,
+) -> dict:
+    """Возвращает все комиссии и слоты, которые становятся недоступными."""
+    if commissions is None:
+        commissions = COMMISSION_MEMBERS
+    if time_slots is None:
+        time_slots = []
+
+    members_a = set(commissions.get(commission_name, []))
+    if not members_a:
+        return {"status": "error", "message": "Комиссия не найдена"}
+
+    end_time = start_time + timedelta(hours=duration_hours)
+    conflicting = []
+    blocked = {}  # (комиссия, слот) -> причина
+
+    for other_name, members_b in commissions.items():
+        if other_name == commission_name:
+            continue
+        if members_a & set(members_b):
+            conflicting.append(other_name)
+            for slot in time_slots:
+                slot_end = slot + timedelta(hours=duration_hours)
+                if max(start_time, slot) < min(end_time, slot_end):
+                    blocked[(other_name, slot)] = f"Пересечение участников с {commission_name}"
+
+    return {
+        "conflicting_commissions": conflicting,
+        "blocked_slots": blocked,
+        "assigned": (commission_name, start_time.strftime("%d.%m %H:%M"), duration_hours),
+    }
+
+
+def build_conflict_matrix(
+    commission_name: str,
+    start_time: datetime,
+    duration_hours: int,
+    commissions: dict,
+    time_slots: list[datetime],
+) -> pd.DataFrame:
+    """Матрица: строки — комиссии, столбцы — слоты, Conflict / Available."""
+    data = {}
+    members_a = set(commissions.get(commission_name, []))
+    end_time = start_time + timedelta(hours=duration_hours)
+
+    for comm in commissions:
+        row = []
+        for slot in time_slots:
+            if comm == commission_name and slot == start_time:
+                row.append("✅ Назначено")
+                continue
+
+            if not (members_a & set(commissions[comm])):
+                row.append("Available")
+                continue
+
+            slot_end = slot + timedelta(hours=duration_hours)
+            if max(start_time, slot) < min(end_time, slot_end):
+                row.append("❌ Conflict")
+            else:
+                row.append("Available")
+        data[comm] = row
+
+    df = pd.DataFrame.from_dict(data, orient="index")
+    df.columns = [s.strftime("%d.%m %H:%M") for s in time_slots]
+    return df
+    
 # ========================= ИНТЕРФЕЙС =========================
-tab1, tab3, tab2 = st.tabs(["📥 Вывод расписания", "📊 Статистика", "🔍 Поиск свободных окон"])
+tab1, tab3, tab2, tab4 = st.tabs([
+    "📥 Вывод расписания",
+    "📊 Статистика",
+    "🔍 Поиск свободных окон",
+    "⚖️ Планирование комиссий"
+])
 
 with tab1:
     st.subheader("📥 Вывод расписания")
@@ -300,3 +395,62 @@ with tab2:
                     st.warning("Не удалось загрузить данные")
 
 st.caption("Версия 4.2 • Очищенный код")
+
+with tab4:
+    st.subheader("⚖️ Планирование комиссий — проверка конфликтов")
+
+    st.caption("Составы комиссий (редактируются в COMMISSION_MEMBERS)")
+    st.json(COMMISSION_MEMBERS)
+
+    col1, col2, col3, col4 = st.columns([2, 1.5, 1, 1])
+    with col1:
+        commission_name = st.selectbox("Комиссия", list(COMMISSION_MEMBERS.keys()), key="comm_name")
+    with col2:
+        comm_date = st.date_input("Дата", datetime(2026, 4, 1), key="comm_date")
+    with col3:
+        comm_hour = st.selectbox("Час начала", list(range(8, 21)), key="comm_hour")
+    with col4:
+        duration_hours = st.selectbox("Длительность", [1, 2, 3], key="duration")
+
+    start_time = datetime.combine(comm_date, datetime.min.time()).replace(hour=comm_hour)
+
+    # Период для матрицы
+    st.subheader("Сетка времени для анализа")
+    m_col1, m_col2 = st.columns(2)
+    with m_col1:
+        matrix_start = st.date_input("Начало периода", datetime(2026, 4, 1), key="m_start")
+    with m_col2:
+        matrix_end = st.date_input("Конец периода", datetime(2026, 4, 7), key="m_end")
+
+    if st.button("🔍 Проверить конфликты + построить матрицу", type="primary", use_container_width=True):
+        time_slots = generate_time_slots(matrix_start, matrix_end)
+
+        result = check_conflicts(
+            commission_name=commission_name,
+            start_time=start_time,
+            duration_hours=duration_hours,
+            time_slots=time_slots,
+        )
+
+        st.success(f"Назначено: **{commission_name}** → {start_time.strftime('%d.%m %H:%M')} ({duration_hours} ч)")
+
+        if result["conflicting_commissions"]:
+            st.warning(f"Занятые комиссии: {', '.join(result['conflicting_commissions'])}")
+            if result["blocked_slots"]:
+                blocked_df = pd.DataFrame([
+                    {"Комиссия": k[0], "Слот": k[1].strftime("%d.%m %H:%M"), "Причина": v}
+                    for k, v in result["blocked_slots"].items()
+                ])
+                st.dataframe(blocked_df, use_container_width=True)
+        else:
+            st.info("Конфликтов нет — можно назначать.")
+
+        # Матрица
+        st.subheader("Матрица доступности слотов")
+        matrix = build_conflict_matrix(
+            commission_name, start_time, duration_hours, COMMISSION_MEMBERS, time_slots
+        )
+        st.dataframe(
+            matrix.style.map(lambda x: "background-color: #ffcccc; color: #900" if "Conflict" in str(x) else ""),
+            use_container_width=True,
+        )

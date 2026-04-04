@@ -192,7 +192,16 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
     return pd.DataFrame(all_lessons)
 
 # ========================= КАЛЕНДАРЬ-МАТРИЦА =========================
-def display_calendar_matrix(combined_df, start_date, end_date):
+def display_calendar_matrix(start_date, end_date, time_step="По часам"):
+    """Отображает календарь-матрицу занятости на основе уже загруженных данных"""
+    if 'schedule_data' not in st.session_state or not st.session_state.schedule_data:
+        st.info("Нет загруженных расписаний. Сначала выведите расписание на первой вкладке.")
+        return
+
+    # Объединяем все загруженные расписания
+    all_dfs = list(st.session_state.schedule_data.values())
+    combined_df = pd.concat(all_dfs, ignore_index=True)
+
     if combined_df.empty:
         st.info("Нет данных для отображения календаря.")
         return
@@ -209,12 +218,14 @@ def display_calendar_matrix(combined_df, start_date, end_date):
     date_range = pd.date_range(start_date, end_date)
 
     st.subheader("📅 Календарь занятости (все выбранные группы и преподаватели)")
-    html = "<table style='width:100%; border-collapse: collapse; font-size: 13px;'>"
-    html += "<tr><th>Время</th>" + "".join(f"<th>{d.strftime('%d.%m (%a)')}</th>" for d in date_range) + "</tr>"
+
+    html = "<table style='width:100%; border-collapse: collapse; font-size: 13px; text-align:center;'>"
+    html += "<tr><th style='border:1px solid #ddd; padding:8px;'>Время</th>" 
+    html += "".join(f"<th style='border:1px solid #ddd; padding:8px;'>{d.strftime('%d.%m (%a)')}</th>" for d in date_range) + "</tr>"
 
     for slot_name, slot_start_str, slot_end_str in slots:
         html += "<tr>"
-        html += f"<td style='border:1px solid #ddd; padding:6px; background:#f8f9fa; font-weight:bold;'>{slot_name}</td>"
+        html += f"<td style='border:1px solid #ddd; padding:8px; background:#f8f9fa; font-weight:bold;'>{slot_name}</td>"
 
         for date in date_range:
             date_str = date.strftime("%d.%m.%Y")
@@ -224,35 +235,40 @@ def display_calendar_matrix(combined_df, start_date, end_date):
             events = []
 
             for _, row in day_df.iterrows():
-                if '–' not in row['Время']:
+                if '–' not in str(row['Время']):
                     continue
-                start_str, end_str = row['Время'].split('–')
-                start = datetime.strptime(start_str.strip(), "%H:%M")
-                end = datetime.strptime(end_str.strip(), "%H:%M")
-                slot_start_dt = datetime.strptime(slot_start_str, "%H:%M")
-                slot_end_dt = datetime.strptime(slot_end_str, "%H:%M")
+                try:
+                    start_str, end_str = str(row['Время']).split('–')
+                    start = datetime.strptime(start_str.strip(), "%H:%M")
+                    end = datetime.strptime(end_str.strip(), "%H:%M")
+                    slot_start_dt = datetime.strptime(slot_start_str, "%H:%M")
+                    slot_end_dt = datetime.strptime(slot_end_str, "%H:%M")
 
-                if not (end <= slot_start_dt or start >= slot_end_dt):
-                    occupied = True
-                    info = f"{row.get('Дисциплина', '')} ({row.get('Тип занятия', '')})"
-                    if 'Преподаватель' in row and row['Преподаватель']:
-                        info += f" — {row['Преподаватель']}"
-                    events.append(info)
+                    if not (end <= slot_start_dt or start >= slot_end_dt):
+                        occupied = True
+                        info = f"{row.get('Дисциплина', '—')} ({row.get('Тип занятия', '')})"
+                        if 'Преподаватель' in row and row['Преподаватель']:
+                            info += f" — {row['Преподаватель']}"
+                        elif 'Группа' in row:
+                            info += f" [гр. {row['Группа']}]"
+                        events.append(info)
+                except:
+                    continue
 
             if occupied:
                 html += f"<td style='border:1px solid #ddd; padding:6px; background:#ffebee; vertical-align:top;'>"
-                html += "<small>" + "<br>".join(events[:3]) + "</small>"
-                if len(events) > 3:
-                    html += f"<br><small>+{len(events)-3} ещё</small>"
+                html += "<small>" + "<br>".join(events[:2]) + "</small>"
+                if len(events) > 2:
+                    html += f"<br><small>+{len(events)-2}</small>"
                 html += "</td>"
             else:
-                html += f"<td style='border:1px solid #ddd; padding:6px; background:#e8f5e9; text-align:center; color:#2e7d32; font-weight:bold;'>✅ Свободно</td>"
+                html += f"<td style='border:1px solid #ddd; padding:8px; background:#e8f5e9; color:#2e7d32; font-weight:bold;'>✅ Свободно</td>"
 
         html += "</tr>"
 
     html += "</table>"
     st.markdown(html, unsafe_allow_html=True)
-    st.caption("✅ Зелёный = все выбранные свободны | 🔴 Красный = есть занятие у кого-то из выбранных")
+    st.caption("✅ Зелёный = свободно для всех выбранных | 🔴 Красный = занято хотя бы у одного")
 
 # ========================= ИНТЕРФЕЙС =========================
 tab1, tab3, tab2 = st.tabs(["📥 Вывод расписания", "📊 Статистика", "🔍 Поиск свободных окон"])

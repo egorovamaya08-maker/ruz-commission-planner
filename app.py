@@ -334,10 +334,9 @@ with tab2:
                     st.warning("Не удалось загрузить данные")
 
 # ========================= ТАБ 4: ПЛАНИРОВАНИЕ КОМИССИЙ =========================
-# ========================= ТАБ 4: ПЛАНИРОВАНИЕ КОМИССИЙ =========================
 with tab4:
     st.subheader("⚖️ Планирование комиссий")
-    st.caption("Напишите в ячейку слово **Занято**. Нажмите кнопку ниже — конфликты должны примениться автоматически.")
+    st.caption("Напишите **Занято** в нужную ячейку → нажмите кнопку ниже.")
 
     colA, colB = st.columns(2)
     with colA:
@@ -345,7 +344,6 @@ with tab4:
     with colB:
         matrix_end = st.date_input("Конец периода", datetime(2026, 4, 10).date(), key="m_end")
 
-    # Инициализация
     if "commission_matrix" not in st.session_state:
         time_slots = generate_time_slots(matrix_start, matrix_end)
         st.session_state.commission_matrix = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
@@ -365,38 +363,25 @@ with tab4:
         for comm in COMMISSION_MEMBERS.keys()
     }
 
-    # Главное — сохраняем edited_df в session_state сразу
+    # Используем callback — самое надёжное решение
+    def save_and_apply():
+        if "commission_editor_v3" in st.session_state:
+            current_data = st.session_state["commission_editor_v3"]
+            final_matrix = auto_mark_conflicts(current_data, COMMISSION_MEMBERS)
+            st.session_state.commission_matrix = final_matrix.copy()
+            st.success("✅ Изменения применены и конфликты обработаны")
+            st.rerun()
+
     edited_df = st.data_editor(
         st.session_state.commission_matrix,
         use_container_width=True,
         num_rows="fixed",
-        key="commission_editor_v2",
+        key="commission_editor_v3",
         column_config=column_config,
         hide_index=False,
+        on_change=save_and_apply   # ← вот главное изменение
     )
 
-    # Кнопка применения
+    # Кнопка на всякий случай (дублирует callback)
     if st.button("💾 Применить изменения и конфликты", type="primary", use_container_width=True):
-        # Сохраняем то, что отредактировал пользователь
-        st.session_state.commission_matrix = edited_df.copy()
-        
-        # Применяем конфликты
-        final_matrix = auto_mark_conflicts(edited_df, COMMISSION_MEMBERS)
-        
-        # Перезаписываем финальное состояние
-        st.session_state.commission_matrix = final_matrix.copy()
-        
-        busy_count = (final_matrix == "🟥 Занято").sum().sum()
-        if busy_count > 0:
-            st.success(f"✅ Применено. Занятых слотов: {busy_count}")
-        else:
-            st.info("✅ Изменения сохранены.")
-        
-        st.rerun()
-
-    # Отображение текущего состояния с подсветкой
-    st.subheader("Текущее расписание")
-    styled = st.session_state.commission_matrix.style.map(
-        lambda x: "background-color: #ffcccc; color: #900000; font-weight: bold" if "🟥 Занято" in str(x) else ""
-    )
-    st.dataframe(styled, use_container_width=True)
+        save_and_apply()

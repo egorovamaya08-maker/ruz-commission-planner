@@ -44,14 +44,18 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
 
     group_id = GROUP_MAP[group_human]
     all_lessons = []
-    current = start_date - timedelta(days=start_date.weekday())
     
-    # Прогресс и статус
+    # Находим первый понедельник, который >= start_date
+    days_ahead = 0 - start_date.weekday()  # weekday: пн=0, вс=6
+    if days_ahead < 0:
+        days_ahead += 7
+    current = start_date + timedelta(days=days_ahead)
+    
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     week_count = 0
-    total_weeks = ((end_date - start_date).days // 7) + 2
+    total_weeks = ((end_date - start_date).days // 7) + 1
 
     while current <= end_date:
         week_count += 1
@@ -67,6 +71,13 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
                     if not date_elem:
                         continue
                     date_text = date_elem.text.strip()
+                    # Проверяем, что дата занятия входит в интервал [start_date, end_date]
+                    try:
+                        lesson_date = datetime.strptime(date_text, "%d.%m.%Y")
+                        if lesson_date < start_date or lesson_date > end_date:
+                            continue
+                    except:
+                        pass
 
                     for lesson in day.find_all('li', class_='lesson'):
                         subject = ""
@@ -121,14 +132,18 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
 
     teacher_id = TEACHER_MAP[teacher_name]
     all_lessons = []
-    current = start_date - timedelta(days=start_date.weekday())
     
-    # Прогресс и статус
+    # Находим первый понедельник, который >= start_date
+    days_ahead = 0 - start_date.weekday()
+    if days_ahead < 0:
+        days_ahead += 7
+    current = start_date + timedelta(days=days_ahead)
+    
     progress_bar = st.progress(0)
     status_text = st.empty()
     
     week_count = 0
-    total_weeks = ((end_date - start_date).days // 7) + 2
+    total_weeks = ((end_date - start_date).days // 7) + 1
     base_url = f"https://ruz.spbstu.ru/teachers/{teacher_id}"
 
     while current <= end_date:
@@ -145,6 +160,12 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
                     if not date_elem:
                         continue
                     date_text = date_elem.text.strip()
+                    try:
+                        lesson_date = datetime.strptime(date_text, "%d.%m.%Y")
+                        if lesson_date < start_date or lesson_date > end_date:
+                            continue
+                    except:
+                        pass
 
                     for lesson in day.find_all('li', class_='lesson'):
                         subject = ""
@@ -196,19 +217,15 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
 
 # ========================= ФУНКЦИЯ ВИЗУАЛИЗАЦИИ РАСПИСАНИЯ (ТАЙМЛАЙН) =========================
 def display_timeline(df, date):
-    """Отображает расписание на указанную дату в виде временной шкалы (полоски)"""
+    """Отображает расписание на указанную дату в виде цветных карточек"""
     day_df = df[df['Дата'] == date]
     if day_df.empty:
         st.info(f"Нет занятий на {date}")
         return
     
-    # Сортируем по времени
     day_df = day_df.sort_values('Время')
     
-    # Готовим HTML/CSS для отображения
-    st.markdown(f"### {date}")
-    
-    # Для каждого занятия рисуем полоску
+    st.markdown(f"### 📅 {date}")
     for _, row in day_df.iterrows():
         time_str = row['Время']
         subject = row['Дисциплина']
@@ -216,38 +233,21 @@ def display_timeline(df, date):
         place = row.get('Место', '')
         teacher = row.get('Преподаватель', row.get('Группы', ''))
         
-        # Разбор времени
-        parts = time_str.split('–')
-        if len(parts) != 2:
-            continue
-        start = parts[0].strip()
-        end = parts[1].strip()
+        # Цвет фона в зависимости от типа занятия
+        if "лек" in lesson_type.lower():
+            color = "#E3F2FD"  # светло-синий
+            border_color = "#2196F3"
+        elif "практ" in lesson_type.lower():
+            color = "#FFF3E0"  # светло-оранжевый
+            border_color = "#FF9800"
+        else:
+            color = "#F3E5F5"  # светло-фиолетовый
+            border_color = "#9C27B0"
         
-        # Ширина полоски пропорциональна длительности (упрощённо, 1 минута = 1px, но ограничим)
-        try:
-            start_dt = datetime.strptime(start, "%H:%M")
-            end_dt = datetime.strptime(end, "%H:%M")
-            duration = int((end_dt - start_dt).seconds / 60)
-            # Максимальная ширина 600px, минимальная 100px
-            width = min(600, max(100, duration * 2))
-        except:
-            width = 200
-        
-        # Цвет в зависимости от типа занятия
-        color = "#4CAF50" if "лек" in lesson_type.lower() else "#FF9800" if "практ" in lesson_type.lower() else "#2196F3"
-        
-        # Используем HTML для полоски
         st.markdown(f"""
-        <div style="margin-bottom: 15px;">
-            <div style="display: flex; align-items: center;">
-                <div style="min-width: 100px;"><b>{start} – {end}</b></div>
-                <div style="background-color: {color}; width: {width}px; height: 30px; border-radius: 8px; margin-left: 10px; display: inline-flex; align-items: center; padding-left: 10px; color: white;">
-                    {subject} ({lesson_type})
-                </div>
-            </div>
-            <div style="margin-left: 110px; font-size: 0.85em; color: #666;">
-                📍 {place} &nbsp;|&nbsp; 👨‍🏫 {teacher}
-            </div>
+        <div style="background-color: {color}; padding: 10px; border-radius: 8px; border-left: 5px solid {border_color}; margin-bottom: 10px;">
+            <b>{time_str}</b> – {subject} ({lesson_type})<br>
+            📍 {place} &nbsp;|&nbsp; 👨‍🏫 {teacher}
         </div>
         """, unsafe_allow_html=True)
 
@@ -258,7 +258,7 @@ tab1, tab3, tab2 = st.tabs(["📥 Вывод расписания", "📊 Ста
 with tab1:
     st.subheader("📥 Вывод расписания")
 
-    mode = st.radio("Что выводим?", ["Расписание группы", "Расписание преподавателя"], horizontal=True)
+    mode = st.radio("Доступные варианты", ["Расписание группы", "Расписание преподавателя"], horizontal=True)
 
     col1, col2 = st.columns(2)
     with col1:

@@ -87,8 +87,7 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
                         continue
                     if lesson_date < start_date or lesson_date > end_date:
                         continue
-                    except:
-                        pass
+                    
                     for lesson in day.find_all('li', class_='lesson'):
                         subject = ""
                         subject_elem = lesson.find('div', class_='lesson__subject')
@@ -159,9 +158,8 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
                     except ValueError:
                         continue
                     if lesson_date < start_date or lesson_date > end_date:
-                            continue
-                    except:
-                        pass
+                        continue
+                        
                     for lesson in day.find_all('li', class_='lesson'):
                         subject = ""
                         subject_elem = lesson.find('div', class_='lesson__subject')
@@ -294,7 +292,7 @@ tab1, tab3, tab2, tab4 = st.tabs([
 # ========================= ТАБ 1: ВЫВОД РАСПИСАНИЯ =========================
 with tab1:
     st.subheader("📥 Вывод расписания")
-    mode = st.radio("Что выводим?", ["Расписание группы", "Расписание преподавателя"], horizontal=True)
+    mode = st.radio("What are we displaying?", ["Расписание группы", "Расписание преподавателя"], horizontal=True)
     col1, col2 = st.columns(2)
     with col1:
         start_date = st.date_input("Дата начала", datetime(2026, 2, 1))
@@ -389,13 +387,12 @@ with tab2:
                     st.warning("Не удалось загрузить данные")
 
 # ========================= ТАБ 4: ПЛАНИРОВАНИЕ ГИА =========================
-# Полный код для вкладки 4 (финальная версия)
 with tab4:
     st.subheader("⚖️ Планирование ГИА")
     
-    # Загрузка сохраненных данных при старте
     if "commission_data" not in st.session_state:
         st.session_state.commission_data = None
+        st.session_state.commission_matrix = None
     
     colA, colB = st.columns(2)
     with colA:
@@ -403,14 +400,12 @@ with tab4:
     with colB:
         matrix_end = st.date_input("Конец периода", datetime(2026, 4, 5).date(), key="m_end")
     
-    # Кнопка перестроения
     if st.button("🔄 Перестроить матрицу") or st.session_state.commission_data is None:
         time_slots = generate_time_slots(matrix_start, matrix_end)
         st.session_state.commission_data = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
         st.session_state.commission_matrix = auto_mark_conflicts(st.session_state.commission_data, COMMISSION_MEMBERS)
         st.rerun()
     
-    # Редактор
     column_config = {
         comm: st.column_config.TextColumn(
             format_header(COMMISSION_MEMBERS[comm]),
@@ -433,7 +428,6 @@ with tab4:
     
     with col_save:
         if st.button("💾 Сохранить", type="primary", use_container_width=True):
-            # Очищаем от меток
             clean_data = edited_df.copy()
             for col in clean_data.columns:
                 clean_data[col] = clean_data[col].apply(
@@ -462,6 +456,6 @@ with tab4:
             df = pd.read_csv(uploaded, index_col=0)
             if set(df.columns) == set(COMMISSION_MEMBERS.keys()):
                 st.session_state.commission_data = df
-                st.session_state.comission_matrix = auto_mark_conflicts(df, COMMISSION_MEMBERS)
+                st.session_state.commission_matrix = auto_mark_conflicts(df, COMMISSION_MEMBERS)
                 st.success("✅ Загружено!")
                 st.rerun()

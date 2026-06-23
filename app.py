@@ -332,9 +332,19 @@ with tab3:
         combined = pd.concat(all_dfs, ignore_index=True)
         st.metric("Всего занятий", len(combined))
         
-        min_date = min(datetime.strptime(d, "%d.%m.%Y") for d in combined['Дата'])
-        max_date = max(datetime.strptime(d, "%d.%m.%Y") for d in combined['Дата'])
-        st.metric("Период", f"{min_date.strftime('%d.%m.%Y')} — {max_date.strftime('%d.%m.%Y')}")
+        # --- БЕЗОПАСНАЯ КОНВЕРТАЦИЯ ДАТ ---
+        # convert to datetime series, turning errors into NaT (Not a Time)
+        converted_dates = pd.to_datetime(combined['Дата'], format="%d.%m.%Y", errors='coerce')
+        valid_dates = converted_dates.dropna()
+
+        if not valid_dates.empty:
+            min_date = valid_dates.min()
+            max_date = valid_dates.max()
+            st.metric("Период", f"{min_date.strftime('%d.%m.%Y')} — {max_date.strftime('%d.%m.%Y')}")
+        else:
+            st.metric("Период", "Нет валидных дат")
+        # ----------------------------------
+
         col1, col2 = st.columns(2)
         with col1:
             st.write("**По типам занятий:**")

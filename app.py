@@ -305,7 +305,8 @@ with tab1:
                 if not df.empty:
                     st.session_state.schedule_data = {f"Группа {group_human}": df}
                     st.success(f"✅ Загружено {len(df)} занятий")
-                    for date_val in sorted(df['Дата'].unique()):
+                    for date_val in sorted(df['Дата'].unique(), key=lambda d: datetime.strptime(d, "%d.%m.%Y")):
+                    
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(df[df['Дата'] == date_val])
     else:
@@ -327,7 +328,10 @@ with tab3:
         all_dfs = list(st.session_state.schedule_data.values())
         combined = pd.concat(all_dfs, ignore_index=True)
         st.metric("Всего занятий", len(combined))
-        st.metric("Период", f"{combined['Дата'].min()} — {combined['Дата'].max()}")
+        
+        min_date = min(datetime.strptime(d, "%d.%m.%Y") for d in combined['Дата'])
+        max_date = max(datetime.strptime(d, "%d.%m.%Y") for d in combined['Дата'])
+        st.metric("Период", f"{min_date.strftime('%d.%m.%Y')} — {max_date.strftime('%d.%m.%Y')}")
         col1, col2 = st.columns(2)
         with col1:
             st.write("**По типам занятий:**")
@@ -372,7 +376,8 @@ with tab2:
                 if schedule_dfs:
                     combined = pd.concat(schedule_dfs, ignore_index=True)
                     st.success(f"Загружено расписание для {len(selected_groups)} групп и {len(selected_teachers)} преподавателей")
-                    for date_val in sorted(combined['Дата'].unique()):
+                    
+                    for date_val in sorted(combined['Дата'].unique(), key=lambda d: datetime.strptime(d, "%d.%m.%Y")):
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(combined[combined['Дата'] == date_val])
                 else:

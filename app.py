@@ -305,8 +305,7 @@ with tab1:
                 if not df.empty:
                     st.session_state.schedule_data = {f"Группа {group_human}": df}
                     st.success(f"✅ Загружено {len(df)} занятий")
-                    # Исправленная сортировка
-                    for date_val in sorted(df['Дата'].unique(), key=lambda d: datetime.strptime(d, "%d.%m.%Y")):
+                    for date_val in sorted(df['Дата'].unique()):
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(df[df['Дата'] == date_val])
     else:
@@ -317,8 +316,7 @@ with tab1:
                 if not df.empty:
                     st.session_state.schedule_data = {f"Преподаватель {teacher_name}": df}
                     st.success(f"✅ Загружено {len(df)} занятий")
-                    # Исправленная сортировка
-                    for date_val in sorted(df['Дата'].unique(), key=lambda d: datetime.strptime(d, "%d.%m.%Y")):
+                    for date_val in sorted(df['Дата'].unique()):
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(df[df['Дата'] == date_val])
 
@@ -329,13 +327,7 @@ with tab3:
         all_dfs = list(st.session_state.schedule_data.values())
         combined = pd.concat(all_dfs, ignore_index=True)
         st.metric("Всего занятий", len(combined))
-        # Безопасное преобразование дат для периода
-        converted = pd.to_datetime(combined['Дата'], format="%d.%m.%Y", errors='coerce')
-        valid = converted.dropna()
-        if not valid.empty:
-            st.metric("Период", f"{valid.min().strftime('%d.%m.%Y')} — {valid.max().strftime('%d.%m.%Y')}")
-        else:
-            st.metric("Период", "Нет данных")
+        st.metric("Период", f"{combined['Дата'].min()} — {combined['Дата'].max()}")
         col1, col2 = st.columns(2)
         with col1:
             st.write("**По типам занятий:**")
@@ -380,21 +372,20 @@ with tab2:
                 if schedule_dfs:
                     combined = pd.concat(schedule_dfs, ignore_index=True)
                     st.success(f"Загружено расписание для {len(selected_groups)} групп и {len(selected_teachers)} преподавателей")
-                    # Исправленная сортировка
-                    for date_val in sorted(combined['Дата'].unique(), key=lambda d: datetime.strptime(d, "%d.%m.%Y")):
+                    for date_val in sorted(combined['Дата'].unique()):
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(combined[combined['Дата'] == date_val])
                 else:
                     st.warning("Не удалось загрузить данные")
 
 # ========================= ТАБ 4: ПЛАНИРОВАНИЕ ГИА =========================
+# Полный код для вкладки 4 (финальная версия)
 with tab4:
     st.subheader("⚖️ Планирование ГИА")
     
-    # Инициализация session_state (добавлено commission_matrix)
+    # Загрузка сохраненных данных при старте
     if "commission_data" not in st.session_state:
         st.session_state.commission_data = None
-        st.session_state.commission_matrix = None
     
     colA, colB = st.columns(2)
     with colA:
@@ -402,12 +393,14 @@ with tab4:
     with colB:
         matrix_end = st.date_input("Конец периода", datetime(2026, 4, 5).date(), key="m_end")
     
+    # Кнопка перестроения
     if st.button("🔄 Перестроить матрицу") or st.session_state.commission_data is None:
         time_slots = generate_time_slots(matrix_start, matrix_end)
         st.session_state.commission_data = build_empty_matrix(time_slots, list(COMMISSION_MEMBERS.keys()))
         st.session_state.commission_matrix = auto_mark_conflicts(st.session_state.commission_data, COMMISSION_MEMBERS)
         st.rerun()
     
+    # Редактор
     column_config = {
         comm: st.column_config.TextColumn(
             format_header(COMMISSION_MEMBERS[comm]),
@@ -430,11 +423,13 @@ with tab4:
     
     with col_save:
         if st.button("💾 Сохранить", type="primary", use_container_width=True):
+            # Очищаем от меток
             clean_data = edited_df.copy()
             for col in clean_data.columns:
                 clean_data[col] = clean_data[col].apply(
                     lambda x: re.sub(r'^[🟢🔴]\s*', '', str(x)) if pd.notna(x) else x
                 )
+            
             st.session_state.commission_data = clean_data
             st.session_state.commission_matrix = auto_mark_conflicts(clean_data, COMMISSION_MEMBERS)
             st.success("✅ Сохранено")
@@ -457,7 +452,6 @@ with tab4:
             df = pd.read_csv(uploaded, index_col=0)
             if set(df.columns) == set(COMMISSION_MEMBERS.keys()):
                 st.session_state.commission_data = df
-                # Исправлено: commission_matrix (было comission_matrix)
-                st.session_state.commission_matrix = auto_mark_conflicts(df, COMMISSION_MEMBERS)
+                st.session_state.comission_matrix = auto_mark_conflicts(df, COMMISSION_MEMBERS)
                 st.success("✅ Загружено!")
                 st.rerun()

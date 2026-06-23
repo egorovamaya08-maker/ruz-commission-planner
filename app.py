@@ -83,8 +83,10 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
                     date_text = date_elem.text.strip()
                     try:
                         lesson_date = datetime.strptime(date_text, "%d.%m.%Y")
-                        if lesson_date < start_date or lesson_date > end_date:
-                            continue
+                    except ValueError:
+                        continue
+                    if lesson_date < start_date or lesson_date > end_date:
+                        continue
                     except:
                         pass
                     for lesson in day.find_all('li', class_='lesson'):
@@ -154,7 +156,9 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
                     date_text = date_elem.text.strip()
                     try:
                         lesson_date = datetime.strptime(date_text, "%d.%m.%Y")
-                        if lesson_date < start_date or lesson_date > end_date:
+                    except ValueError:
+                        continue
+                    if lesson_date < start_date or lesson_date > end_date:
                             continue
                     except:
                         pass
@@ -317,7 +321,8 @@ with tab1:
                 if not df.empty:
                     st.session_state.schedule_data = {f"Преподаватель {teacher_name}": df}
                     st.success(f"✅ Загружено {len(df)} занятий")
-                    for date_val in sorted(df['Дата'].unique()):
+                    for date_val in sorted(df['Дата'].unique(), key=lambda d: datetime.strptime(d, "%d.%m.%Y")):
+                    
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(df[df['Дата'] == date_val])
 

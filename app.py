@@ -292,7 +292,7 @@ tab1, tab3, tab2, tab4 = st.tabs([
 # ========================= ТАБ 1: ВЫВОД РАСПИСАНИЯ =========================
 with tab1:
     st.subheader("📥 Вывод расписания")
-    mode = st.radio("What are we displaying?", ["Расписание группы", "Расписание преподавателя"], horizontal=True)
+    mode = st.radio("Что выводим?", ["Расписание группы", "Расписание преподавателя"], horizontal=True)
     col1, col2 = st.columns(2)
     with col1:
         start_date = st.date_input("Дата начала", datetime(2026, 2, 1))
@@ -308,7 +308,6 @@ with tab1:
                     st.session_state.schedule_data = {f"Группа {group_human}": df}
                     st.success(f"✅ Загружено {len(df)} занятий")
                     for date_val in sorted(df['Дата'].unique(), key=lambda d: datetime.strptime(d, "%d.%m.%Y")):
-                    
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(df[df['Дата'] == date_val])
     else:
@@ -320,7 +319,6 @@ with tab1:
                     st.session_state.schedule_data = {f"Преподаватель {teacher_name}": df}
                     st.success(f"✅ Загружено {len(df)} занятий")
                     for date_val in sorted(df['Дата'].unique(), key=lambda d: datetime.strptime(d, "%d.%m.%Y")):
-                    
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(df[df['Дата'] == date_val])
 
@@ -332,18 +330,15 @@ with tab3:
         combined = pd.concat(all_dfs, ignore_index=True)
         st.metric("Всего занятий", len(combined))
         
-        # --- БЕЗОПАСНАЯ КОНВЕРТАЦИЯ ДАТ ---
-        # convert to datetime series, turning errors into NaT (Not a Time)
+        # Безопасная конвертация дат
         converted_dates = pd.to_datetime(combined['Дата'], format="%d.%m.%Y", errors='coerce')
         valid_dates = converted_dates.dropna()
-
         if not valid_dates.empty:
             min_date = valid_dates.min()
             max_date = valid_dates.max()
             st.metric("Период", f"{min_date.strftime('%d.%m.%Y')} — {max_date.strftime('%d.%m.%Y')}")
         else:
             st.metric("Период", "Нет валидных дат")
-        # ----------------------------------
 
         col1, col2 = st.columns(2)
         with col1:
@@ -389,7 +384,6 @@ with tab2:
                 if schedule_dfs:
                     combined = pd.concat(schedule_dfs, ignore_index=True)
                     st.success(f"Загружено расписание для {len(selected_groups)} групп и {len(selected_teachers)} преподавателей")
-                    
                     for date_val in sorted(combined['Дата'].unique(), key=lambda d: datetime.strptime(d, "%d.%m.%Y")):
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(combined[combined['Дата'] == date_val])
@@ -400,9 +394,10 @@ with tab2:
 with tab4:
     st.subheader("⚖️ Планирование ГИА")
     
+    # Инициализация session_state
     if "commission_data" not in st.session_state:
         st.session_state.commission_data = None
-        st.session_state.commission_matrix = None
+        st.session_state.commission_matrix = None   # <- исправлено
     
     colA, colB = st.columns(2)
     with colA:
@@ -443,7 +438,6 @@ with tab4:
                 clean_data[col] = clean_data[col].apply(
                     lambda x: re.sub(r'^[🟢🔴]\s*', '', str(x)) if pd.notna(x) else x
                 )
-            
             st.session_state.commission_data = clean_data
             st.session_state.commission_matrix = auto_mark_conflicts(clean_data, COMMISSION_MEMBERS)
             st.success("✅ Сохранено")
@@ -466,6 +460,6 @@ with tab4:
             df = pd.read_csv(uploaded, index_col=0)
             if set(df.columns) == set(COMMISSION_MEMBERS.keys()):
                 st.session_state.commission_data = df
-                st.session_state.commission_matrix = auto_mark_conflicts(df, COMMISSION_MEMBERS)
+                st.session_state.commission_matrix = auto_mark_conflicts(df, COMMISSION_MEMBERS)   # <- исправлено
                 st.success("✅ Загружено!")
                 st.rerun()

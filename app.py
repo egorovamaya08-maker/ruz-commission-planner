@@ -83,11 +83,10 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
                     date_text = date_elem.text.strip()
                     try:
                         lesson_date = datetime.strptime(date_text, "%d.%m.%Y")
-                    except ValueError:
-                        continue
-                    if lesson_date < start_date or lesson_date > end_date:
-                        continue
-                    
+                        if lesson_date < start_date or lesson_date > end_date:
+                            continue
+                    except:
+                        pass
                     for lesson in day.find_all('li', class_='lesson'):
                         subject = ""
                         subject_elem = lesson.find('div', class_='lesson__subject')
@@ -155,11 +154,10 @@ def parse_teacher_schedule(teacher_name: str, start_date: datetime, end_date: da
                     date_text = date_elem.text.strip()
                     try:
                         lesson_date = datetime.strptime(date_text, "%d.%m.%Y")
-                    except ValueError:
-                        continue
-                    if lesson_date < start_date or lesson_date > end_date:
-                        continue
-                        
+                        if lesson_date < start_date or lesson_date > end_date:
+                            continue
+                    except:
+                        pass
                     for lesson in day.find_all('li', class_='lesson'):
                         subject = ""
                         subject_elem = lesson.find('div', class_='lesson__subject')
@@ -307,6 +305,7 @@ with tab1:
                 if not df.empty:
                     st.session_state.schedule_data = {f"Группа {group_human}": df}
                     st.success(f"✅ Загружено {len(df)} занятий")
+                    # Исправленная сортировка
                     for date_val in sorted(df['Дата'].unique(), key=lambda d: datetime.strptime(d, "%d.%m.%Y")):
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(df[df['Дата'] == date_val])
@@ -318,6 +317,7 @@ with tab1:
                 if not df.empty:
                     st.session_state.schedule_data = {f"Преподаватель {teacher_name}": df}
                     st.success(f"✅ Загружено {len(df)} занятий")
+                    # Исправленная сортировка
                     for date_val in sorted(df['Дата'].unique(), key=lambda d: datetime.strptime(d, "%d.%m.%Y")):
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(df[df['Дата'] == date_val])
@@ -329,17 +329,13 @@ with tab3:
         all_dfs = list(st.session_state.schedule_data.values())
         combined = pd.concat(all_dfs, ignore_index=True)
         st.metric("Всего занятий", len(combined))
-        
-        # Безопасная конвертация дат
-        converted_dates = pd.to_datetime(combined['Дата'], format="%d.%m.%Y", errors='coerce')
-        valid_dates = converted_dates.dropna()
-        if not valid_dates.empty:
-            min_date = valid_dates.min()
-            max_date = valid_dates.max()
-            st.metric("Период", f"{min_date.strftime('%d.%m.%Y')} — {max_date.strftime('%d.%m.%Y')}")
+        # Безопасное преобразование дат для периода
+        converted = pd.to_datetime(combined['Дата'], format="%d.%m.%Y", errors='coerce')
+        valid = converted.dropna()
+        if not valid.empty:
+            st.metric("Период", f"{valid.min().strftime('%d.%m.%Y')} — {valid.max().strftime('%d.%m.%Y')}")
         else:
-            st.metric("Период", "Нет валидных дат")
-
+            st.metric("Период", "Нет данных")
         col1, col2 = st.columns(2)
         with col1:
             st.write("**По типам занятий:**")
@@ -384,6 +380,7 @@ with tab2:
                 if schedule_dfs:
                     combined = pd.concat(schedule_dfs, ignore_index=True)
                     st.success(f"Загружено расписание для {len(selected_groups)} групп и {len(selected_teachers)} преподавателей")
+                    # Исправленная сортировка
                     for date_val in sorted(combined['Дата'].unique(), key=lambda d: datetime.strptime(d, "%d.%m.%Y")):
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(combined[combined['Дата'] == date_val])
@@ -394,10 +391,10 @@ with tab2:
 with tab4:
     st.subheader("⚖️ Планирование ГИА")
     
-    # Инициализация session_state
+    # Инициализация session_state (добавлено commission_matrix)
     if "commission_data" not in st.session_state:
         st.session_state.commission_data = None
-        st.session_state.commission_matrix = None   # <- исправлено
+        st.session_state.commission_matrix = None
     
     colA, colB = st.columns(2)
     with colA:
@@ -460,6 +457,7 @@ with tab4:
             df = pd.read_csv(uploaded, index_col=0)
             if set(df.columns) == set(COMMISSION_MEMBERS.keys()):
                 st.session_state.commission_data = df
-                st.session_state.commission_matrix = auto_mark_conflicts(df, COMMISSION_MEMBERS)   # <- исправлено
+                # Исправлено: commission_matrix (было comission_matrix)
+                st.session_state.commission_matrix = auto_mark_conflicts(df, COMMISSION_MEMBERS)
                 st.success("✅ Загружено!")
                 st.rerun()

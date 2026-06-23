@@ -280,10 +280,11 @@ def format_header(members: list[str]) -> str:
     return ", ".join(short)
     
 # ========================= ИНТЕРФЕЙС =========================
-tab1, tab3, tab2, tab4 = st.tabs([
+# Вкладка tab2 закомментирована в списке, чтобы не отображаться в UI
+tab1, tab3, tab4 = st.tabs([
     "📥 Вывод расписания",
     "📊 Статистика",
-    "🔍 Поиск свободных окон",
+#   "🔍 Поиск свободных окон",
     "⚖️ Планирование ГИА"
 ])
 
@@ -334,52 +335,51 @@ with tab3:
             st.dataframe(combined['Тип занятия'].value_counts())
         with col2:
             st.write("**По преподавателям:**")
-            st.dataframe(combined['Преподаватель'].value_counts())
+            st.dataframe(combined['Преповаритель'].value_counts())
     else:
         st.info("Загрузите расписание на вкладке 'Вывод расписания'")
 
-# ========================= ТАБ 2: ПОИСК СВОБОДНЫХ ОКОН =========================
-with tab2:
-    st.subheader("🔍 Поиск свободных окон")
-    st.write("**Выберите группы и преподавателей:**")
-    selected_groups = st.multiselect("Группы", options=list(GROUP_MAP.keys()))
-    selected_teachers = st.multiselect("Преподаватели", options=list(TEACHER_MAP.keys()))
-    col1, col2 = st.columns(2)
-    with col1:
-        search_start = st.date_input("Начало периода", datetime(2026, 2, 1), key="search_start")
-    with col2:
-        search_end = st.date_input("Конец периода", datetime(2026, 2, 28), key="search_end")
-    duration_options = {"30 минут": 30, "1 час": 60, "1.5 часа": 90, "2 часа": 120}
-    min_duration_label = st.selectbox("Мин. длительность окна", list(duration_options.keys()))
-    min_duration = duration_options[min_duration_label]
-
-    if st.button("🔎 Построить общее расписание", type="primary"):
-        if not selected_groups and not selected_teachers:
-            st.warning("Выберите хотя бы одну группу или преподавателя")
-        else:
-            with st.spinner("Загрузка расписаний..."):
-                schedule_dfs = []
-                if selected_groups:
-                    for g in selected_groups:
-                        df = parse_group_schedule(g, search_start, search_end)
-                        if not df.empty:
-                            schedule_dfs.append(df)
-                if selected_teachers:
-                    for t in selected_teachers:
-                        df = parse_teacher_schedule(t, search_start, search_end)
-                        if not df.empty:
-                            schedule_dfs.append(df)
-                if schedule_dfs:
-                    combined = pd.concat(schedule_dfs, ignore_index=True)
-                    st.success(f"Загружено расписание для {len(selected_groups)} групп и {len(selected_teachers)} преподавателей")
-                    for date_val in sorted(combined['Дата'].unique()):
-                        st.subheader(f"📅 {date_val}")
-                        st.dataframe(combined[combined['Дата'] == date_val])
-                else:
-                    st.warning("Не удалось загрузить данные")
+# ========================= ТАБ 2: ПОИСК СВОБОДНЫХ ОКОН (ЗАКОММЕНТИРОВАНО) =========================
+# with tab2:
+#     st.subheader("🔍 Поиск свободных окон")
+#     st.write("**Выберите группы и преподавателей:**")
+#     selected_groups = st.multiselect("Группы", options=list(GROUP_MAP.keys()))
+#     selected_teachers = st.multiselect("Преподаватели", options=list(TEACHER_MAP.keys()))
+#     col1, col2 = st.columns(2)
+#     with col1:
+#         search_start = st.date_input("Начало периода", datetime(2026, 2, 1), key="search_start")
+#     with col2:
+#         search_end = st.date_input("Конец периода", datetime(2026, 2, 28), key="search_end")
+#     duration_options = {"30 минут": 30, "1 час": 60, "1.5 часа": 90, "2 часа": 120}
+#     min_duration_label = st.selectbox("Мин. длительность окна", list(duration_options.keys()))
+#     min_duration = duration_options[min_duration_label]
+# 
+#     if st.button("🔎 Построить общее расписание", type="primary"):
+#         if not selected_groups and not selected_teachers:
+#             st.warning("Выберите хотя бы одну группу или преподавателя")
+#         else:
+#             with st.spinner("Загрузка расписаний..."):
+#                 schedule_dfs = []
+#                 if selected_groups:
+#                     for g in selected_groups:
+#                         df = parse_group_schedule(g, search_start, search_end)
+#                         if not df.empty:
+#                             schedule_dfs.append(df)
+#                 if selected_teachers:
+#                     for t in selected_teachers:
+#                         df = parse_teacher_schedule(t, search_start, search_end)
+#                         if not df.empty:
+#                             schedule_dfs.append(df)
+#                 if schedule_dfs:
+#                     combined = pd.concat(schedule_dfs, ignore_index=True)
+#                     st.success(f"Загружено расписание для {len(selected_groups)} групп и {len(selected_teachers)} преподавателей")
+#                     for date_val in sorted(combined['Дата'].unique()):
+#                         st.subheader(f"📅 {date_val}")
+#                         st.dataframe(combined[combined['Дата'] == date_val])
+#                 else:
+#                     st.warning("Не удалось загрузить данные")
 
 # ========================= ТАБ 4: ПЛАНИРОВАНИЕ ГИА =========================
-# Полный код для вкладки 4 (финальная версия)
 with tab4:
     st.subheader("⚖️ Планирование ГИА")
     
@@ -452,6 +452,6 @@ with tab4:
             df = pd.read_csv(uploaded, index_col=0)
             if set(df.columns) == set(COMMISSION_MEMBERS.keys()):
                 st.session_state.commission_data = df
-                st.session_state.comission_matrix = auto_mark_conflicts(df, COMMISSION_MEMBERS)
+                st.session_state.commission_matrix = auto_mark_conflicts(df, COMMISSION_MEMBERS)
                 st.success("✅ Загружено!")
                 st.rerun()

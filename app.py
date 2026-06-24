@@ -349,23 +349,30 @@ def format_header(members: list[str]) -> str:
 def display_schedule_by_date(df: pd.DataFrame, title: str = ""):
     """
     Выводит расписание, группируя по датам в хронологическом порядке.
-    Безопасно обрабатывает даты в формате 'дд.мм.гггг'.
+    Безопасно обрабатывает даты в формате 'дд.мм.гггг' (с пробелами или без).
     """
     if df.empty:
         st.info("Нет данных")
         return
 
-    # Копируем, чтобы не изменять исходный df
     df_copy = df.copy()
-    # Преобразуем строки в datetime
-    df_copy['Дата_parsed'] = pd.to_datetime(df_copy['Дата'], format='%d.%m.%Y', errors='coerce')
-    # Убираем строки с некорректными датами
+    # Приводим к строке и убираем лишние пробелы
+    df_copy['Дата'] = df_copy['Дата'].astype(str).str.strip()
+    
+    # Парсим с dayfirst=True (автоопределение формата)
+    df_copy['Дата_parsed'] = pd.to_datetime(df_copy['Дата'], dayfirst=True, errors='coerce')
+    
+    # Если все даты не распознались, выведем примеры для отладки
+    if df_copy['Дата_parsed'].isna().all():
+        st.warning("Не удалось распознать даты. Проверьте формат.")
+        st.write("Примеры значений в столбце 'Дата':", df_copy['Дата'].head(10).tolist())
+        return
+
     df_valid = df_copy.dropna(subset=['Дата_parsed'])
     if df_valid.empty:
         st.warning("Нет корректных дат для отображения")
         return
 
-    # Сортируем уникальные даты
     dates_sorted = sorted(df_valid['Дата_parsed'].unique())
 
     if title:
@@ -374,7 +381,6 @@ def display_schedule_by_date(df: pd.DataFrame, title: str = ""):
     for dt in dates_sorted:
         date_str = dt.strftime("%d.%m.%Y")
         st.subheader(f"📅 {date_str}")
-        # Отфильтровываем строки для этой даты и убираем временную колонку
         day_data = df_valid[df_valid['Дата_parsed'] == dt].drop(columns=['Дата_parsed'])
         st.dataframe(day_data)
     

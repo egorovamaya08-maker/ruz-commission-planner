@@ -83,11 +83,21 @@ def parse_group_schedule(group_human: str, start_date: datetime, end_date: datet
                         continue
                     date_text = date_elem.text.strip()
                     try:
-                        lesson_date = datetime.strptime(date_text, "%d.%m.%Y")
+                        # Адаптируем разбор для парсера
+                        s_date = date_text.lower().strip().split(',')[0].strip().split()
+                        months_map = {'января':1, 'февраля':2, 'марта':3, 'апреля':4, 'мая':5, 'июня':6, 'июля':7, 'августа':8, 'сентября':9, 'октября':10, 'ноября':11, 'декабря':12}
+                        
+                        # Собираем date объект с 2026 годом
+                        lesson_date = date(2026, months_map[s_date[1]], int(s_date[0]))
+                        
+                        # Сравниваем типы date с date (теперь без ошибок!)
                         if lesson_date < start_date or lesson_date > end_date:
                             continue
-                    except:
-                        pass
+                    except Exception as e:
+                        # Если дата не распарсилась, пропускаем её safe-модом
+                        continue
+                    
+                   
                     for lesson in day.find_all('li', class_='lesson'):
                         subject = ""
                         subject_elem = lesson.find('div', class_='lesson__subject')
@@ -349,40 +359,74 @@ def format_header(members: list[str]) -> str:
 def display_schedule_by_date(df: pd.DataFrame, title: str = ""):
     """
     Выводит расписание, группируя по датам в хронологическом порядке.
-    Безопасно обрабатывает даты в формате 'дд.мм.гггг' (с пробелами или без).
+    Успешно обрабатывает текстовый формат РУЗ вида '18 мая, пн' для 2026 года.
     """
     if df.empty:
         st.info("Нет данных")
         return
 
     df_copy = df.copy()
-    # Приводим к строке и убираем лишние пробелы
-    df_copy['Дата'] = df_copy['Дата'].astype(str).str.strip()
     
-    # Парсим с dayfirst=True (автоопределение формата)
-    df_copy['Дата_parsed'] = pd.to_datetime(df_copy['Дата'], dayfirst=True, errors='coerce')
-    
-    # Если все даты не распознались, выведем примеры для отладки
+    # Словарь для конвертации месяцев
+    months_ru = {
+        'января': '01', 'февраля': '02', 'марта': '03', 'апреля': '04',
+        'мая': '05', 'июня': '06', 'июля': '07', 'августа': '08',
+        'сентября': '09', 'октября': '10', 'ноября': '11', 'декабря': '12'
+    }
+
+    def parse_ruz_date(date_str):
+        try:
+            # Приводим к нижнему регистру и очищаем пробелы
+            s = str(date_str).lower().strip()
+            # Убираем день недели (все, что после запятой)
+            s = s.split(',')[0].strip() 
+            
+            # Разделяем число и месяц (например, ["18", "мая"])
+            parts = s.split()
+            if len(parts) < 2:
+                return pd.NaT
+                
+            day = parts[0].zfill(2) # "1" -> "01"
+            month_text = parts[1]
+            
+            month = months_ru.get(month_text)
+            if not month:
+                return pd.NaT
+                
+            # Собираем дату в формате ДД.ММ.ГГГГ (подставляем текущий 2026 год)
+            full_date_str = f"{day}.{month}.2026"
+            return pd.to_datetime(full_date_str, format="%d.%m.%Y")
+        except:
+            return pd.NaT
+
+    # Создаем правильный столбец с датами для сортировки
+    df_copy['Дата_parsed'] = df_copy['Дата'].apply(parse_ruz_date)
+
+    # Если совсем ничего не распозналось — выводим отладку
     if df_copy['Дата_parsed'].isna().all():
         st.warning("Не удалось распознать даты. Проверьте формат.")
         st.write("Примеры значений в столбце 'Дата':", df_copy['Дата'].head(10).tolist())
         return
 
-    df_valid = df_copy.dropna(subset=['Дата_parsed'])
+    # Дропаем битые строки и сортируем по-настоящему в хронологическом порядке
+    df_valid = df_copy.dropna(subset=['Дата_parsed']).sort_values(by='Дата_parsed')
+    
     if df_valid.empty:
         st.warning("Нет корректных дат для отображения")
         return
 
-    dates_sorted = sorted(df_valid['Дата_parsed'].unique())
-
     if title:
         st.subheader(title)
 
-    for dt in dates_sorted:
-        date_str = dt.strftime("%d.%m.%Y")
-        st.subheader(f"📅 {date_str}")
+    # Группируем и выводим по возрастанию дат
+    for dt in df_valid['Дата_parsed'].unique():
+        # Переводим обратно в красивую строку для заголовка
+        date_header = pd.Timestamp(dt).strftime("%d.%m.%Y")
+        st.subheader(f"📅 {date_header}")
+        
+        # Фильтруем данные для текущей даты и удаляем служебный столбец
         day_data = df_valid[df_valid['Дата_parsed'] == dt].drop(columns=['Дата_parsed'])
-        st.dataframe(day_data)
+        st.dataframe(day_data, use_container_width=True)
     
 # ========================= ИНТЕРФЕЙС =========================
 # Вкладка tab2 закомментирована в списке, чтобы не отображаться в UI

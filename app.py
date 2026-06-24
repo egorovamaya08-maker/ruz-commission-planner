@@ -335,7 +335,7 @@ with tab3:
             st.dataframe(combined['Тип занятия'].value_counts())
         with col2:
             st.write("**По преподавателям:**")
-            st.dataframe(combined['Преповаритель'].value_counts())
+            st.dataframe(combined['Преподаватель'].value_counts())
     else:
         st.info("Загрузите расписание на вкладке 'Вывод расписания'")
 

@@ -5,6 +5,7 @@ from bs4 import BeautifulSoup
 from datetime import datetime, timedelta, date
 import time
 import re
+import io
 
 st.set_page_config(page_title="RUZ Planner", layout="wide")
 st.title("📅 RUZ Planner")
@@ -267,6 +268,71 @@ def auto_mark_conflicts(matrix: pd.DataFrame, commission_members: dict) -> pd.Da
     
     return result_df
 
+def prepare_export_dataframe(combined_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Преобразует объединённый DataFrame из расписаний в формат для выгрузки Excel.
+    Столбцы: Группа, Дисциплина, Контроль, [типы занятий], Преподаватель, Формат занятий.
+    """
+    if combined_df.empty:
+        return pd.DataFrame()
+
+    # Работаем с копией
+    df = combined_df.copy()
+
+    # Унифицируем поле "Группа": если есть "Группы" (от преподавателя) – разбиваем на отдельные строки
+    if "Группы" in df.columns and "Группа" not in df.columns:
+        # Разделяем по запятой и разворачиваем
+        df["Группа"] = df["Группы"].str.split(r',\s*')
+        df = df.explode("Группа")
+    elif "Группа" not in df.columns:
+        # Если нет ни того, ни другого – пропускаем
+        return pd.DataFrame()
+
+    # Приводим тип занятия к стандартному виду (убираем лишние пробелы)
+    df["Тип занятия"] = df["Тип занятия"].str.strip()
+
+    # Группируем по (Группа, Дисциплина) и агрегируем
+    agg_dict = {
+        "Преподаватель": lambda x: ", ".join(sorted(set(x.dropna()))),
+        "Место": lambda x: ", ".join(sorted(set(x.dropna()))),
+        "Тип занятия": lambda x: x.value_counts().to_dict()  # временный словарь
+    }
+    grouped = df.groupby(["Группа", "Дисциплина"], as_index=False).agg(agg_dict)
+
+    # Разворачиваем словари с типами занятий в отдельные столбцы
+    type_counts = grouped["Тип занятия"].apply(pd.Series).fillna(0).astype(int)
+    # Убираем исходный столбец
+    grouped = grouped.drop(columns=["Тип занятия"])
+    # Объединяем
+    result = pd.concat([grouped, type_counts], axis=1)
+
+    # Добавляем пустой столбец "Контроль"
+    result.insert(2, "Контроль", "")
+
+    # Переименовываем столбцы (если нужно, но можно оставить как есть)
+    # Порядок столбцов: Группа, Дисциплина, Контроль, затем все типы, затем Преподаватель, Формат занятий
+    # Переставим, чтобы Преподаватель и Формат занятий были в конце
+    cols = result.columns.tolist()
+    # Убираем "Преподаватель" и "Место" из середины
+    if "Преподаватель" in cols:
+        cols.remove("Преподаватель")
+    if "Место" in cols:
+        cols.remove("Место")
+    # Собираем порядок: сначала Группа, Дисциплина, Контроль, потом все типы (кроме уже убранных), потом Преподаватель, Место
+    fixed = ["Группа", "Дисциплина", "Контроль"]
+    other_types = [c for c in cols if c not in fixed]
+    # Перемещаем Преподаватель и Место в конец
+    final_cols = fixed + other_types + ["Преподаватель", "Место"]
+    # Убедимся, что все столбцы существуют
+    final_cols = [c for c in final_cols if c in result.columns]
+    result = result[final_cols]
+
+    # Переименовываем "Место" в "Формат занятий"
+    result.rename(columns={"Место": "Формат занятий"}, inplace=True)
+
+    return result
+
+
 def format_header(members: list[str]) -> str:
     short = []
     for m in members:
@@ -306,7 +372,9 @@ with tab1:
                 if not df.empty:
                     st.session_state.schedule_data = {f"Группа {group_human}": df}
                     st.success(f"✅ Загружено {len(df)} занятий")
-                    for date_val in sorted(df['Дата'].unique()):
+                    
+                    dates_sorted = sorted(df['Дата'].unique(), key=lambda x: datetime.strptime(x, "%d.%m.%Y"))
+                    for date_val in dates_sorted:
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(df[df['Дата'] == date_val])
     else:
@@ -317,14 +385,33 @@ with tab1:
                 if not df.empty:
                     st.session_state.schedule_data = {f"Преподаватель {teacher_name}": df}
                     st.success(f"✅ Загружено {len(df)} занятий")
-                    for date_val in sorted(df['Дата'].unique()):
+                   
+                    dates_sorted = sorted(df['Дата'].unique(), key=lambda x: datetime.strptime(x, "%d.%m.%Y"))
+                    for date_val in dates_sorted:
                         st.subheader(f"📅 {date_val}")
                         st.dataframe(df[df['Дата'] == date_val])
+    # ===== ВЫВОД СОХРАНЁННЫХ ДАННЫХ (если есть) =====
+    if 'schedule_data' in st.session_state and st.session_state.schedule_data:
+        st.markdown("---")
+        st.subheader("Загруженные данные")
+        for key, df in st.session_state.schedule_data.items():
+            st.write(f"**{key}**")
+            if not df.empty:
+                # Сортируем даты хронологически (используем ту же функцию)
+                dates_sorted = sorted(df['Дата'].unique(), key=lambda x: datetime.strptime(x, "%d.%m.%Y"))
+                for date_val in dates_sorted:
+                    st.subheader(f"📅 {date_val}")
+                    st.dataframe(df[df['Дата'] == date_val])
+            else:
+                st.info("Нет данных")
+
 
 # ========================= ТАБ 3: СТАТИСТИКА =========================
 with tab3:
     st.subheader("📊 Статистика")
     if 'schedule_data' in st.session_state and st.session_state.schedule_data:
+        entities = list(st.session_state.schedule_data.keys())
+        st.write("**Расписания загружены для:** " + ", ".join(entities))
         all_dfs = list(st.session_state.schedule_data.values())
         combined = pd.concat(all_dfs, ignore_index=True)
         st.metric("Всего занятий", len(combined))
@@ -338,6 +425,7 @@ with tab3:
             st.dataframe(combined['Преподаватель'].value_counts())
     else:
         st.info("Загрузите расписание на вкладке 'Вывод расписания'")
+        
 
 # ========================= ТАБ 2: ПОИСК СВОБОДНЫХ ОКОН (ЗАКОММЕНТИРОВАНО) =========================
 # with tab2:

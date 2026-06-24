@@ -344,6 +344,39 @@ def format_header(members: list[str]) -> str:
         else:
             short.append(m)
     return ", ".join(short)
+
+
+def display_schedule_by_date(df: pd.DataFrame, title: str = ""):
+    """
+    Выводит расписание, группируя по датам в хронологическом порядке.
+    Безопасно обрабатывает даты в формате 'дд.мм.гггг'.
+    """
+    if df.empty:
+        st.info("Нет данных")
+        return
+
+    # Копируем, чтобы не изменять исходный df
+    df_copy = df.copy()
+    # Преобразуем строки в datetime
+    df_copy['Дата_parsed'] = pd.to_datetime(df_copy['Дата'], format='%d.%m.%Y', errors='coerce')
+    # Убираем строки с некорректными датами
+    df_valid = df_copy.dropna(subset=['Дата_parsed'])
+    if df_valid.empty:
+        st.warning("Нет корректных дат для отображения")
+        return
+
+    # Сортируем уникальные даты
+    dates_sorted = sorted(df_valid['Дата_parsed'].unique())
+
+    if title:
+        st.subheader(title)
+
+    for dt in dates_sorted:
+        date_str = dt.strftime("%d.%m.%Y")
+        st.subheader(f"📅 {date_str}")
+        # Отфильтровываем строки для этой даты и убираем временную колонку
+        day_data = df_valid[df_valid['Дата_parsed'] == dt].drop(columns=['Дата_parsed'])
+        st.dataframe(day_data)
     
 # ========================= ИНТЕРФЕЙС =========================
 # Вкладка tab2 закомментирована в списке, чтобы не отображаться в UI
@@ -366,7 +399,7 @@ with tab1:
 
     if mode == "Расписание группы":
         group_human = st.selectbox("Выберите группу", list(GROUP_MAP.keys()))
-        if st.button("🚀 Показать расписание группы", type="primary"):
+        if st.button("Показать расписание группы", type="primary"):
             with st.spinner("Парсинг..."):
                 df = parse_group_schedule(group_human, start_date, end_date)
                 if not df.empty:
@@ -374,12 +407,12 @@ with tab1:
                     st.success(f"✅ Загружено {len(df)} занятий")
                     
                     dates_sorted = sorted(df['Дата'].unique(), key=lambda x: datetime.strptime(x, "%d.%m.%Y"))
-                    for date_val in dates_sorted:
-                        st.subheader(f"📅 {date_val}")
-                        st.dataframe(df[df['Дата'] == date_val])
+                    display_schedule_by_date(df, f"Группа {group_human}")
+                    
+                   
     else:
         teacher_name = st.selectbox("Выберите преподавателя", list(TEACHER_MAP.keys()))
-        if st.button("🚀 Показать расписание преподавателя", type="primary"):
+        if st.button("Показать расписание преподавателя", type="primary"):
             with st.spinner("Парсинг..."):
                 df = parse_teacher_schedule(teacher_name, start_date, end_date)
                 if not df.empty:
@@ -387,23 +420,16 @@ with tab1:
                     st.success(f"✅ Загружено {len(df)} занятий")
                    
                     dates_sorted = sorted(df['Дата'].unique(), key=lambda x: datetime.strptime(x, "%d.%m.%Y"))
-                    for date_val in dates_sorted:
-                        st.subheader(f"📅 {date_val}")
-                        st.dataframe(df[df['Дата'] == date_val])
+                    
+                    display_schedule_by_date(df, f"Преподаватель {teacher_name}")
+                    
     # ===== ВЫВОД СОХРАНЁННЫХ ДАННЫХ (если есть) =====
+
     if 'schedule_data' in st.session_state and st.session_state.schedule_data:
         st.markdown("---")
         st.subheader("Загруженные данные")
         for key, df in st.session_state.schedule_data.items():
-            st.write(f"**{key}**")
-            if not df.empty:
-                # Сортируем даты хронологически (используем ту же функцию)
-                dates_sorted = sorted(df['Дата'].unique(), key=lambda x: datetime.strptime(x, "%d.%m.%Y"))
-                for date_val in dates_sorted:
-                    st.subheader(f"📅 {date_val}")
-                    st.dataframe(df[df['Дата'] == date_val])
-            else:
-                st.info("Нет данных")
+            display_schedule_by_date(df, key)
 
 
 # ========================= ТАБ 3: СТАТИСТИКА =========================
@@ -461,9 +487,7 @@ with tab3:
 #                 if schedule_dfs:
 #                     combined = pd.concat(schedule_dfs, ignore_index=True)
 #                     st.success(f"Загружено расписание для {len(selected_groups)} групп и {len(selected_teachers)} преподавателей")
-#                     for date_val in sorted(combined['Дата'].unique()):
-#                         st.subheader(f"📅 {date_val}")
-#                         st.dataframe(combined[combined['Дата'] == date_val])
+#                     display_schedule_by_date(df, f"Группа {group_human}")
 #                 else:
 #                     st.warning("Не удалось загрузить данные")
 

@@ -405,11 +405,7 @@ with tab1:
                 if not df.empty:
                     st.session_state.schedule_data = {f"Группа {group_human}": df}
                     st.success(f"✅ Загружено {len(df)} занятий")
-                    
-                    dates_sorted = sorted(df['Дата'].unique(), key=lambda x: datetime.strptime(x, "%d.%m.%Y"))
                     display_schedule_by_date(df, f"Группа {group_human}")
-                    
-                   
     else:
         teacher_name = st.selectbox("Выберите преподавателя", list(TEACHER_MAP.keys()))
         if st.button("Показать расписание преподавателя", type="primary"):
@@ -418,13 +414,9 @@ with tab1:
                 if not df.empty:
                     st.session_state.schedule_data = {f"Преподаватель {teacher_name}": df}
                     st.success(f"✅ Загружено {len(df)} занятий")
-                   
-                    dates_sorted = sorted(df['Дата'].unique(), key=lambda x: datetime.strptime(x, "%d.%m.%Y"))
-                    
                     display_schedule_by_date(df, f"Преподаватель {teacher_name}")
-                    
-    # ===== ВЫВОД СОХРАНЁННЫХ ДАННЫХ (если есть) =====
 
+    # ===== ВЫВОД СОХРАНЁННЫХ ДАННЫХ (если есть) =====
     if 'schedule_data' in st.session_state and st.session_state.schedule_data:
         st.markdown("---")
         st.subheader("Загруженные данные")
@@ -449,6 +441,22 @@ with tab3:
         with col2:
             st.write("**По преподавателям:**")
             st.dataframe(combined['Преподаватель'].value_counts())
+
+        # ----- НОВЫЙ БЛОК ДЛЯ ЭКСПОРТА EXCEL -----
+        export_df = prepare_export_dataframe(combined)
+        if not export_df.empty:
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                export_df.to_excel(writer, sheet_name='Отчет', index=False)
+            excel_data = output.getvalue()
+            st.download_button(
+                label="📥 Выгрузить Excel",
+                data=excel_data,
+                file_name=f"statistics_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+        # ------------------------------------------
     else:
         st.info("Загрузите расписание на вкладке 'Вывод расписания'")
         

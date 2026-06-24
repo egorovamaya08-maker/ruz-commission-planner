@@ -446,7 +446,8 @@ with tab3:
         export_df = prepare_export_dataframe(combined)
         if not export_df.empty:
             output = io.BytesIO()
-            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            with pd.ExcelWriter(output) as writer:
+            
                 export_df.to_excel(writer, sheet_name='Отчет', index=False)
             excel_data = output.getvalue()
             st.download_button(
